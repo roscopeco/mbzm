@@ -12,7 +12,7 @@ all: rz
 rz: $(OBJFILES)
 	$(LD) $^ -o $@
 
-test: rz.c zheaders.c znumbers.c zserial.c crcccitt.c crc32.c
+test: tests.c zheaders.c znumbers.c zserial.c crcccitt.c crc32.c
 	$(CC) $(CFLAGS) -DTEST -o $@ $^
 	./$@
 
