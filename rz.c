@@ -31,18 +31,31 @@ static ZHDR hdr_zrinit = {
   .f3 = 0x00
 };
 
-int recv() {
-  return fgetc(com);
+ZRESULT recv() {
+  register int result = fgetc(com);
+
+  if (result == EOF) {
+    return GOT_EOF;
+  } else {
+    return result;
+  }
 }
 
-int send(uint8_t chr) {
-  return putc((char)chr, com);
+ZRESULT send(uint8_t chr) {
+  register int result = putc((char)chr, com);
+
+  if (result == EOF) {
+    return GOT_EOF;
+  } else {
+    return OK;
+  }
 }
 
 int main() {
   uint8_t rzr_buf[4];
   uint8_t zrinit_buf[HEX_HDR_STR_LEN + 1];
   zrinit_buf[HEX_HDR_STR_LEN] = 0;
+  ZHDR hdr;
 
   // Set up zrinit for later use...
   calc_hdr_crc(&hdr_zrinit);
@@ -56,52 +69,63 @@ int main() {
   if (com != NULL) {
     printf("Opened port just fine\n");
 
-    while (true) {
-      if (await("rz\r", (char*)rzr_buf, 4)) {
-        printf("Got rzr...\n");
+    if (await("rz\r", (char*)rzr_buf, 4) == OK) {
+      printf("Got rzr...\n");
 
-        if (await_zrqinit()) {
-          printf("Got ZRQINIT\n");
+      while (true) {
+        uint16_t result = await_header(&hdr);
 
-          send(ZPAD);
-          send(ZPAD);
-          send(ZDLE);
-          if (send_sz(zrinit_buf) == OK) {
-            printf("Send ZRINIT was OK\n");
-            printf("Echo next ten chars...");
+        switch (result) {
+        case OK:
+          DEBUGF("Got valid header\n");
 
-            for (int i = 0; i < 20; i++) {
-              int r = recv();
-              printf("Received: 0x%02x", r);
+          switch (hdr.type) {
+          case ZRQINIT:
+            DEBUGF("Is ZRQINIT\n");
+            send(ZPAD);
+            send(ZPAD);
+            send(ZDLE);
 
-              if (r > 32 && r < 127) {
-                printf(" [%c]\n", (uint8_t)r);
-              } else {
-                printf("\n");
-              }
+            result = send_sz(zrinit_buf);
+
+            if (result == OK) {
+              printf("Send ZRINIT was OK\n");
+            } else if(result == GOT_EOF) {
+              printf("Got EOF; Breaking loop...");
+              goto cleanup;
             }
 
-          } else {
-            printf("Send ZRINIT was Failure\n");
+            continue;
+
+          case ZFILE:
+            DEBUGF("Is ZFILE\n");
+
+
+          default:
+            DEBUGF("Isn't ZRQINIT - is 0x%02x instead :S\n", hdr.type);
           }
-        } else {
-          printf("Didn't get ZRQINIT...\n");
+
+          break;
+        case BAD_CRC:
+          DEBUGF("Didn't get valid header - CRC Check failed\n");
+        default:
+          DEBUGF("Didn't get valid header - result is 0x%04x\n", result);
+          return false;
         }
-      } else {
-        printf("Didn't get rzr, must've got EOF...\n");
       }
-      break;
-    }
-    
-    if (fclose(com)) {
-      printf("Whoah, close failed!\n");
-    } else {
-      printf("Closed okay...\n");
     }
 
+    cleanup:
+    
+    if (fclose(com)) {
+      printf("Failed to close file\n");
+      return 1;
+    } else {
+      return 0;
+    }
   } else {
     printf("Unable to open port\n");
-    return 1;
+    return 2;
   }
 }
 
@@ -129,11 +153,11 @@ uint16_t set_buf(char* buf, int len) {
 }
 
 /* recv implementation for use in tests */
-int recv() {
+ZRESULT recv() {
   if (buf_ptr < buf_limit) {
     return *buf_ptr++;
   } else {
-    return EOF;
+    return GOT_EOF;
   }
 }
 
@@ -147,8 +171,8 @@ void test_recv_buffer() {
   TEST_CHECK(recv() == 'b');
   TEST_CHECK(recv() == 'c');
   
-  TEST_CHECK(recv() == EOF);
-  TEST_CHECK(recv() == EOF);
+  TEST_CHECK(recv() == GOT_EOF);
+  TEST_CHECK(recv() == GOT_EOF);
 }
 
 /* The actual tests */
@@ -156,9 +180,11 @@ void test_is_error() {
   TEST_CHECK(IS_ERROR(0x0000) == false);
   TEST_CHECK(IS_ERROR(0x0001) == false);
   TEST_CHECK(IS_ERROR(0x00ff) == false);
-  TEST_CHECK(IS_ERROR(0x0f00) == true);
+  TEST_CHECK(IS_ERROR(0x0f00) == false);
   TEST_CHECK(IS_ERROR(0xf000) == true);
   TEST_CHECK(IS_ERROR(0xff00) == true);
+
+  TEST_CHECK(IS_ERROR(OK) == false);
   TEST_CHECK(IS_ERROR(BAD_DIGIT) == true);
 }
 
@@ -167,10 +193,17 @@ void test_get_error_code() {
   TEST_CHECK(ERROR_CODE(0x0001) == 0x0000);
   TEST_CHECK(ERROR_CODE(0x00f0) == 0x0000);
   TEST_CHECK(ERROR_CODE(0x00ff) == 0x0000);
-  TEST_CHECK(ERROR_CODE(0x0f00) == 0x0f00);
+  TEST_CHECK(ERROR_CODE(0x0f00) == 0x0000);
   TEST_CHECK(ERROR_CODE(0xf000) == 0xf000);
-  TEST_CHECK(ERROR_CODE(0xff00) == 0xff00);
-  TEST_CHECK(ERROR_CODE(0xffc0) == 0xff00);
+  TEST_CHECK(ERROR_CODE(0xff00) == 0xf000);
+  TEST_CHECK(ERROR_CODE(0xffc0) == 0xf000);
+}
+
+void test_zvalue() {
+  TEST_CHECK(ZVALUE(0x0000) == 0x00);
+  TEST_CHECK(ZVALUE(0x0001) == 0x01);
+  TEST_CHECK(ZVALUE(0x1000) == 0x00);
+  TEST_CHECK(ZVALUE(0xf00d) == 0x0d);
 }
 
 void test_hex_to_nybble() {
@@ -303,8 +336,8 @@ void test_read_hex_header() {
   TEST_CHECK(hdr.crc1 == 0);
   TEST_CHECK(hdr.crc2 == 0);
  
-  // Correct CRC - 01 02 03 04 05 - CRC is 0x6534 
-  set_buf("01020304056534", 14);
+  // Correct CRC - 01 02 03 04 05 - CRC is 0x8208
+  set_buf("01020304058208", 14);
   TEST_CHECK(read_hex_header(&hdr) == OK);
 
   TEST_CHECK(hdr.type == 0x01);
@@ -312,10 +345,10 @@ void test_read_hex_header() {
   TEST_CHECK(hdr.f1 == 0x03);
   TEST_CHECK(hdr.f2 == 0x04);
   TEST_CHECK(hdr.f3 == 0x05);
-  TEST_CHECK(hdr.crc1 == 0x65);
-  TEST_CHECK(hdr.crc2 == 0x34);
+  TEST_CHECK(hdr.crc1 == 0x82);
+  TEST_CHECK(hdr.crc2 == 0x08);
   
-  // Incorrect CRC - 01 02 03 04 05 - CRC is 0x6534, but expect 0xc0c0 
+  // Incorrect CRC - 01 02 03 04 05 - CRC is 0x8208, but expect 0xc0c0
   // Note that header left intact for debugging
   set_buf("0102030405c0c0", 14);
   TEST_CHECK(read_hex_header(&hdr) == BAD_CRC);
@@ -409,6 +442,7 @@ TEST_LIST = {
   { "recv_buffer",          test_recv_buffer      },
   { "IS_ERROR",             test_is_error         },
   { "GET_ERROR_CODE",       test_get_error_code   },
+  { "ZVALUE",               test_zvalue           },
   { "hex_to_nybble",        test_hex_to_nybble    },
   { "hex_to_byte",          test_hex_to_byte      },
   { "nybble_to_hex",        test_nybble_to_hex    },

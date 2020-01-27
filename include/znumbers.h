@@ -22,9 +22,9 @@
 extern 'C' {
 #endif
 
-uint16_t hex_to_nybble(char c1);
+ZRESULT hex_to_nybble(char c1);
 
-uint16_t nybble_to_hex(uint8_t nybble);
+ZRESULT nybble_to_hex(uint8_t nybble);
 
 /*
  * *buf MUST have space for exactly two characters!
@@ -32,9 +32,9 @@ uint16_t nybble_to_hex(uint8_t nybble);
  * Returns OK on success, or an error code.
  * If an error occues, the buffer will be unchanged.
  */
-uint16_t byte_to_hex(uint8_t byte, uint8_t *buf);
+ZRESULT byte_to_hex(uint8_t byte, uint8_t *buf);
 
-uint16_t hex_to_byte(unsigned char c1, unsigned char c2);
+ZRESULT hex_to_byte(unsigned char c1, unsigned char c2);
 
 #ifdef __cplusplus
 }

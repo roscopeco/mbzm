@@ -23,6 +23,10 @@
 extern 'C' {
 #endif
 
+/*
+ * One-shot calculate the CRC for a ZHDR and set the
+ * crc1 and crc2 fields appropriately.
+ */
 void calc_hdr_crc(ZHDR *hdr);
 
 /*
@@ -36,11 +40,13 @@ void calc_hdr_crc(ZHDR *hdr);
  * Returns actual used length (max 0xff bytes), or OUT_OF_SPACE
  * if the supplied buffer is not large enough.
  */
-uint16_t to_hex_header(ZHDR *hdr, uint8_t *buf, int max_len);
+ZRESULT to_hex_header(ZHDR *hdr, uint8_t *buf, int max_len);
+
+ZRESULT check_header_crc16(ZHDR *hdr, uint16_t crc);
 
 #ifdef ZDEBUG
 #define DEBUG_DUMPHDR(hdr)                      \
-  DEBUGF("READ_HEX: Header read:\n");           \
+  DEBUGF("DEBUG: Header read:\n");              \
   DEBUGF("  type: 0x%02x\n", hdr->type);        \
   DEBUGF("    f0: 0x%02x\n", hdr->f0);          \
   DEBUGF("    f1: 0x%02x\n", hdr->f1);          \

@@ -27,34 +27,32 @@ extern 'C' {
 /*
  * The lib doesn't implement these - they need to be provided.
  */
-int recv();
-int send(uint8_t chr);
+ZRESULT recv();
+ZRESULT send(uint8_t chr);
 
 /*
  * Receive CR/LF (with CR being optional).
  */
-uint16_t read_crlf();
+ZRESULT read_crlf();
 
-uint16_t read_hex_byte();
+ZRESULT read_hex_byte();
 
 /*
  * buf must be one character longer than the string...
  * Trashes buf, for obvious reasons.
  */
-bool await(char *str, char *buf, int buf_size);
+ZRESULT await(char *str, char *buf, int buf_size);
+ZRESULT await_zdle();
+ZRESULT await_header(ZHDR *hdr);
 
-bool await_zdle();
+ZRESULT read_hex_header(ZHDR *hdr);
+ZRESULT read_binary16_header(ZHDR *hdr);
 
-uint16_t read_hex_header(ZHDR *hdr);
-
-uint16_t await_header(ZHDR *hdr);
-
-bool await_zrqinit();
 
 /*
  * Send a null-terminated string.
  */
-uint16_t send_sz(uint8_t *data);
+ZRESULT send_sz(uint8_t *data);
 
 #ifdef __cplusplus
 }

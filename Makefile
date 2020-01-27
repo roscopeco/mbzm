@@ -2,20 +2,20 @@ CC=gcc
 LD=gcc
 
 CFLAGS=-std=c11 -Wall -Werror -Wpedantic -Iinclude -O3
-OBJFILES=rz.o zheaders.o znumbers.o zserial.o xmodemcrc.o
+OBJFILES=rz.o zheaders.o znumbers.o zserial.o crcccitt.o crc32.o
 
 all: rz
 
 %.o: %.c
-	$(CC) $(CFLAGS) -DDEBUG -c -o $@ $<
+	$(CC) $(CFLAGS) -DZDEBUG -c -o $@ $<
 
 rz: $(OBJFILES)
 	$(LD) $^ -o $@
 
-test: rz.c zheaders.c znumbers.c zserial.c xmodemcrc.c
+test: rz.c zheaders.c znumbers.c zserial.c crcccitt.c crc32.c
 	$(CC) $(CFLAGS) -DTEST -o $@ $^
 	./$@
 
 clean:
-	rm -f *.o rz
+	rm -f *.o rz test
 

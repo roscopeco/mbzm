@@ -12,11 +12,15 @@
  * Numeric-related routines for Zmodem implementation.
  * ------------------------------------------------------------
  */
+#ifdef ZDEBUG
+#include <stdio.h>
+#endif
+
 #include <stdbool.h>
 #include "ztypes.h"
 #include "znumbers.h"
 
-uint16_t hex_to_nybble(char c1) {
+ZRESULT hex_to_nybble(char c1) {
   switch (c1) {
   case '0':
     return 0x00;
@@ -55,7 +59,7 @@ uint16_t hex_to_nybble(char c1) {
   }
 }
 
-uint16_t nybble_to_hex(uint8_t nybble) {
+ZRESULT nybble_to_hex(uint8_t nybble) {
   switch (nybble) {
   case 0x0:
     return '0';
@@ -94,7 +98,7 @@ uint16_t nybble_to_hex(uint8_t nybble) {
   }
 }
 
-uint16_t byte_to_hex(uint8_t byte, uint8_t *buf) {
+ZRESULT byte_to_hex(uint8_t byte, uint8_t *buf) {
   uint16_t h1 = nybble_to_hex(BMSN(byte));
 
   if (IS_ERROR(h1)) {
@@ -113,7 +117,7 @@ uint16_t byte_to_hex(uint8_t byte, uint8_t *buf) {
   }
 }
 
-uint16_t hex_to_byte(unsigned char c1, unsigned char c2) {
+ZRESULT hex_to_byte(unsigned char c1, unsigned char c2) {
   uint16_t n1,n2;
 
   n1 = hex_to_nybble(c1);
