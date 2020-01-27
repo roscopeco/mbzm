@@ -98,16 +98,23 @@ int main() {
           case ZFILE:
             DEBUGF("Is ZFILE\n");
 
+            // TODO handle this :)
+
+            continue;
 
           default:
-            DEBUGF("Isn't ZRQINIT - is 0x%02x instead :S\n", hdr.type);
+            DEBUGF("Completely unhandled header - is 0x%02x :S\n", hdr.type);
+            continue;
           }
 
           break;
         case BAD_CRC:
           DEBUGF("Didn't get valid header - CRC Check failed\n");
+          // TODO send NAK
+          continue;
         default:
           DEBUGF("Didn't get valid header - result is 0x%04x\n", result);
+          // TODO what?
           return false;
         }
       }
