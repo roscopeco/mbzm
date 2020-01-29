@@ -24,6 +24,8 @@
 extern 'C' {
 #endif
 
+#define NONCONTROL(c)    ((bool)((uint8_t)(c & 0xe0)))
+
 /*
  * The lib doesn't implement these - they need to be provided.
  */
@@ -48,6 +50,7 @@ ZRESULT await_header(ZHDR *hdr);
 ZRESULT read_hex_header(ZHDR *hdr);
 ZRESULT read_binary16_header(ZHDR *hdr);
 
+ZRESULT read_escaped();
 
 /*
  * Send a null-terminated string.

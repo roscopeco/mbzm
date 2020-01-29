@@ -30,7 +30,8 @@ extern 'C' {
 #define LF          0x0a
 #define CR          0x0d
 #define ZPAD        '*'
-#define ZDLE        0x18
+#define ZDLE        0x18        /* ZDLE and CAN */
+#define CAN         0x18        /* are the same */
 
 // Header types
 #define ZBIN16      'A'
@@ -39,20 +40,54 @@ extern 'C' {
 
 // Frame types
 #define ZRQINIT     0x00
+#define ZRINIT      0x01
+#define ZSINIT      0x02
+#define ZACK        0x03
 #define ZFILE       0x04
+#define ZSKIP       0x05
+#define ZNAK        0x06
+#define ZABORT      0x07
+#define ZFIN        0x08
+#define ZRPOS       0x09
+#define ZDATA       0x0a
+#define ZEOF        0x0b
+#define ZERR        0x0c
+#define ZCRC        0x0d
+#define ZCHALLENGE  0x0e
+#define ZCOMPL      0x0f
+#define ZCAN        0x10
+#define ZFREECOUNT  0x11
+#define ZCOMMAND    0x12
+#define ZSTDERR     0x13
+
+// Capabilities for ZRINIT
+#define CANFDX      0x01                /* Rx can send and receive true FDX                 */
+#define CANOVIO     0x02                /* Rx can receive data during disk I/O              */
+#define CANBRK      0x04                /* Rx can send a break signal                       */
+#define CANCRY      0x08                /* Receiver can decrypt                             */
+#define CANLZW      0x10                /* Receiver can uncompress                          */
+#define CANFC32     0x20                /* Receiver can use 32 bit Frame Check              */
+#define ESCCTL      0x40                /* Receiver expects ctl chars to be escaped         */
+#define ESC8        0x80                /* Receiver expects 8th bit to be escaped           */
+
+// ZFILE conversion options (F0)
+#define ZCBIN       0x01                /* Binary transfer - inhibit conversion             */
+#define ZCNL        0x02                /* Convert NL to local end of line convention       */
+#define ZCRESUM     0x03                /* Resume interrupted file transfer                 */
 
 // Result codes
 #define VALUE_MASK        0x00ff        /* Mask used to extract value from ZRESULT          */
 #define ERROR_MASK        0xf000        /* Mask used to determine if result is an error     */
 #define OK                0x0100        /* Return code for "all is well"                    */
 #define BAD_DIGIT         0x1000        /* Bad digit when converting from hex               */
-#define GOT_EOF           0x2000        /* Got EOF when reading from stream                 */
+#define CLOSED            0x2000        /* Got EOF when reading from stream                 */
 #define BAD_HEADER_TYPE   0x3000        /* Bad header type in stream (probably noise)       */
 #define BAD_FRAME_TYPE    0x4000        /* Bad frame type in stream (probably noise)        */
 #define CORRUPTED         0x5000        /* Corruption detected in header (probably noise)   */
 #define BAD_CRC           0x6000        /* Header did not match CRC (probably noise)        */
 #define OUT_OF_RANGE      0x7000        /* Conversion attempted for out-of-range number     */
 #define OUT_OF_SPACE      0x8000        /* Supplied buffer is not big enough                */
+#define CANCELLED         0x9000        /* 5x CAN received                                  */
 #define UNSUPPORTED       0xf000        /* Attempted to use an unsupported protocol feature */
 
 #define ERROR_CODE(x)     (x & ERROR_MASK)
@@ -84,11 +119,25 @@ extern 'C' {
 typedef uint16_t ZRESULT;
 
 typedef struct {
-  uint8_t   type;
-  uint8_t   f0;
-  uint8_t   f1;
-  uint8_t   f2;
   uint8_t   f3;
+  uint8_t   f2;
+  uint8_t   f1;
+  uint8_t   f0;
+} ZFLAGS;
+
+typedef struct {
+  uint8_t   p0;
+  uint8_t   p1;
+  uint8_t   p2;
+  uint8_t   p3;
+} ZPOS;
+
+typedef struct {
+  uint8_t   type;
+  union {
+    ZFLAGS    flags;
+    ZPOS      position;
+  };
   uint8_t   crc1;         /* keep these byte-sized to avoid alignment */
   uint8_t   crc2;         /* issues with 16-bit reads on m68k         */
   uint8_t   PADDING;

@@ -45,7 +45,7 @@ ZRESULT recv() {
   if (buf_ptr < buf_limit) {
     return *buf_ptr++;
   } else {
-    return GOT_EOF;
+    return CLOSED;
   }
 }
 
@@ -59,8 +59,8 @@ void test_recv_buffer() {
   TEST_CHECK(recv() == 'b');
   TEST_CHECK(recv() == 'c');
 
-  TEST_CHECK(recv() == GOT_EOF);
-  TEST_CHECK(recv() == GOT_EOF);
+  TEST_CHECK(recv() == CLOSED);
+  TEST_CHECK(recv() == CLOSED);
 }
 
 /* The actual tests */
@@ -92,6 +92,16 @@ void test_zvalue() {
   TEST_CHECK(ZVALUE(0x0001) == 0x01);
   TEST_CHECK(ZVALUE(0x1000) == 0x00);
   TEST_CHECK(ZVALUE(0xf00d) == 0x0d);
+}
+
+void test_noncontrol() {
+  for (uint8_t i = 0; i < 0xff; i++) {
+    if (i < 32) {
+      TEST_CHECK(NONCONTROL(i) == false);
+    } else {
+      TEST_CHECK(NONCONTROL(i) == true);
+    }
+  }
 }
 
 void test_hex_to_nybble() {
@@ -217,10 +227,10 @@ void test_read_hex_header() {
   TEST_CHECK(read_hex_header(&hdr) == OK);
 
   TEST_CHECK(hdr.type == 0);
-  TEST_CHECK(hdr.f0 == 0);
-  TEST_CHECK(hdr.f1 == 0);
-  TEST_CHECK(hdr.f2 == 0);
-  TEST_CHECK(hdr.f3 == 0);
+  TEST_CHECK(hdr.flags.f0 == 0);
+  TEST_CHECK(hdr.flags.f1 == 0);
+  TEST_CHECK(hdr.flags.f2 == 0);
+  TEST_CHECK(hdr.flags.f3 == 0);
   TEST_CHECK(hdr.crc1 == 0);
   TEST_CHECK(hdr.crc2 == 0);
 
@@ -229,10 +239,14 @@ void test_read_hex_header() {
   TEST_CHECK(read_hex_header(&hdr) == OK);
 
   TEST_CHECK(hdr.type == 0x01);
-  TEST_CHECK(hdr.f0 == 0x02);
-  TEST_CHECK(hdr.f1 == 0x03);
-  TEST_CHECK(hdr.f2 == 0x04);
-  TEST_CHECK(hdr.f3 == 0x05);
+  TEST_CHECK(hdr.position.p0 == 0x02);
+  TEST_CHECK(hdr.position.p1 == 0x03);
+  TEST_CHECK(hdr.position.p2 == 0x04);
+  TEST_CHECK(hdr.position.p3 == 0x05);
+  TEST_CHECK(hdr.flags.f3 == 0x02);
+  TEST_CHECK(hdr.flags.f2 == 0x03);
+  TEST_CHECK(hdr.flags.f1 == 0x04);
+  TEST_CHECK(hdr.flags.f0 == 0x05);
   TEST_CHECK(hdr.crc1 == 0x82);
   TEST_CHECK(hdr.crc2 == 0x08);
 
@@ -242,10 +256,14 @@ void test_read_hex_header() {
   TEST_CHECK(read_hex_header(&hdr) == BAD_CRC);
 
   TEST_CHECK(hdr.type == 0x01);
-  TEST_CHECK(hdr.f0 == 0x02);
-  TEST_CHECK(hdr.f1 == 0x03);
-  TEST_CHECK(hdr.f2 == 0x04);
-  TEST_CHECK(hdr.f3 == 0x05);
+  TEST_CHECK(hdr.position.p0 == 0x02);
+  TEST_CHECK(hdr.position.p1 == 0x03);
+  TEST_CHECK(hdr.position.p2 == 0x04);
+  TEST_CHECK(hdr.position.p3 == 0x05);
+  TEST_CHECK(hdr.flags.f3 == 0x02);
+  TEST_CHECK(hdr.flags.f2 == 0x03);
+  TEST_CHECK(hdr.flags.f1 == 0x04);
+  TEST_CHECK(hdr.flags.f0 == 0x05);
   TEST_CHECK(hdr.crc1 == 0xc0);
   TEST_CHECK(hdr.crc2 == 0xc0);
 
@@ -258,10 +276,12 @@ void test_read_hex_header() {
 void test_calc_hdr_crc() {
   ZHDR hdr = {
     .type = 0x01,
-    .f0 = 0x02,
-    .f1 = 0x03,
-    .f2 = 0x04,
-    .f3 = 0x05
+    .flags = {
+      .f3 = 0x02,
+      .f2 = 0x03,
+      .f1 = 0x04,
+      .f0 = 0x05
+    }
   };
 
   calc_hdr_crc(&hdr);
@@ -273,10 +293,12 @@ void test_calc_hdr_crc() {
 
   ZHDR real_hdr = {
     .type = 0x06,
-    .f0 = 0x00,
-    .f1 = 0x00,
-    .f2 = 0x00,
-    .f3 = 0x00
+    .flags = {
+      .f3 = 0x00,
+      .f2 = 0x00,
+      .f1 = 0x00,
+      .f0 = 0x00
+    }
   };
 
   calc_hdr_crc(&real_hdr);
@@ -290,10 +312,12 @@ void test_calc_hdr_crc() {
 void test_to_hex_header() {
   ZHDR hdr = {
     .type = 0x01,
-    .f0 = 0x02,
-    .f1 = 0x03,
-    .f2 = 0x04,
-    .f3 = 0x05,
+    .flags = {
+      .f3 = 0x02,
+      .f2 = 0x03,
+      .f1 = 0x04,
+      .f0 = 0x05,
+    },
     .crc1 = 0x0a,
     .crc2 = 0x0b
   };
@@ -326,11 +350,35 @@ void test_to_hex_header() {
   TEST_CHECK(strcmp("B01020304050a0b\r\x8a", (const char*)buf) == 0);
 }
 
+void test_read_escaped() {
+  // simple non-control characters
+  set_buf("ABC", 3);
+
+  TEST_CHECK(read_escaped() == 'A');
+  TEST_CHECK(read_escaped() == 'B');
+  TEST_CHECK(read_escaped() == 'C');
+
+  // CLOSED if end of stream
+  TEST_CHECK(read_escaped() == CLOSED);
+
+  // XON/XOFF are skipped
+  set_buf("\x11\x11\x13Z", 4);
+
+  TEST_CHECK(read_escaped() == 'Z');
+  TEST_CHECK(read_escaped() == CLOSED);
+
+  // 5x CAN cancels
+  set_buf("\x18\x18\x18\x18\x18ZYX", 5);
+  TEST_CHECK(read_escaped() == CANCELLED);
+  TEST_CHECK(read_escaped() == 'Z');
+}
+
 TEST_LIST = {
   { "recv_buffer",          test_recv_buffer      },
   { "IS_ERROR",             test_is_error         },
   { "GET_ERROR_CODE",       test_get_error_code   },
   { "ZVALUE",               test_zvalue           },
+  { "NONCONTROL",           test_noncontrol       },
   { "hex_to_nybble",        test_hex_to_nybble    },
   { "hex_to_byte",          test_hex_to_byte      },
   { "nybble_to_hex",        test_nybble_to_hex    },
@@ -338,5 +386,6 @@ TEST_LIST = {
   { "read_hex_header",      test_read_hex_header  },
   { "calc_hdr_crc",         test_calc_hdr_crc     },
   { "to_hex_header",        test_to_hex_header    },
+  { "test_read_escaped",    test_read_escaped     },
   { NULL, NULL }
 };

@@ -72,6 +72,22 @@ ZRESULT read_hex_byte() {
   }
 }
 
+ZRESULT read_escaped() {
+  while (true) {
+    ZRESULT c = recv();
+
+    // Return immediately if non-control character or error
+    if (NONCONTROL(c) || IS_ERROR(c)) {
+      return c;
+    }
+
+    switch (c) {
+
+
+    }
+  }
+}
+
 ZRESULT await(char *str, char *buf, int buf_size) {
   memset(buf, 0, 4);
   int ptr = 0;
@@ -147,7 +163,7 @@ ZRESULT read_hex_header(ZHDR *hdr) {
       return c1;
     } else if (IS_ERROR(c1)) {
       DEBUGF("READ_HEX: Character %d/1 is EOF\n", i);
-      return GOT_EOF;
+      return CLOSED;
     } else {
       DEBUGF("READ_HEX: Character %d/1 is good: 0x%02x\n", i, c1);
       uint16_t c2 = recv();
@@ -157,7 +173,7 @@ ZRESULT read_hex_header(ZHDR *hdr) {
         return c2;
       } else if (IS_ERROR(c2)) {
         DEBUGF("READ_HEX: Character %d/2 is EOF\n", i);
-        return GOT_EOF;
+        return CLOSED;
       } else {
         DEBUGF("READ_HEX: Character %d/2 is good: 0x%02x\n", i, c2);
         uint16_t b = hex_to_byte(c1,c2);
@@ -202,7 +218,7 @@ ZRESULT read_binary16_header(ZHDR *hdr) {
       return b;
     } else if (IS_ERROR(b)) {
       DEBUGF("READ_BIN16: Character %d/1 is EOF\n", i);
-      return GOT_EOF;
+      return CLOSED;
     } else {
       DEBUGF("READ_BIN16: Byte %d is good: 0x%02x\n", i, b);
       DEBUGF("Byte %d; hdr at 0x%0lx; ptr at 0x%0lx\n", i, (uint64_t)hdr, (uint64_t)ptr);
@@ -263,7 +279,7 @@ ZRESULT await_header(ZHDR *hdr) {
       return BAD_FRAME_TYPE;
     }
   } else {
-    return GOT_EOF;
+    return CLOSED;
   }
 }
 

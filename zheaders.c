@@ -23,10 +23,10 @@
 
 void calc_hdr_crc(ZHDR *hdr) {
   uint16_t crc = update_crc_ccitt(CRC_START_XMODEM, hdr->type);
-  crc = update_crc_ccitt(crc, hdr->f0);
-  crc = update_crc_ccitt(crc, hdr->f1);
-  crc = update_crc_ccitt(crc, hdr->f2);
-  crc = update_crc_ccitt(crc, hdr->f3);
+  crc = update_crc_ccitt(crc, hdr->flags.f3);
+  crc = update_crc_ccitt(crc, hdr->flags.f2);
+  crc = update_crc_ccitt(crc, hdr->flags.f1);
+  crc = update_crc_ccitt(crc, hdr->flags.f0);
 
   hdr->crc1 = CRC_MSB(crc);
   hdr->crc2 = CRC_LSB(crc);
@@ -43,13 +43,13 @@ ZRESULT to_hex_header(ZHDR *hdr, uint8_t *buf, int max_len) {
 
     byte_to_hex(hdr->type, buf);    // 03
     buf += 2;
-    byte_to_hex(hdr->f0, buf);      // 05
+    byte_to_hex(hdr->flags.f3, buf);// 05
     buf += 2;
-    byte_to_hex(hdr->f1, buf);      // 07
+    byte_to_hex(hdr->flags.f2, buf);// 07
     buf += 2;
-    byte_to_hex(hdr->f2, buf);      // 09
+    byte_to_hex(hdr->flags.f1, buf);// 09
     buf += 2;
-    byte_to_hex(hdr->f3, buf);      // 0b
+    byte_to_hex(hdr->flags.f0, buf);// 0b
     buf += 2;
     byte_to_hex(hdr->crc1, buf);    // 0d
     buf += 2;

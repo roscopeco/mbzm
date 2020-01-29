@@ -49,6 +49,12 @@ a definite improvement over the other 30-year-old code out there.
 A sample application is included that will receive a file. You can use `sz` or `minicom` or
 something to send a file, probably using `socat` or similar to set up a virtual link.
 
+E.g. start socat:
+
+`socat -d -d pty,raw,echo=0 pty,raw,echo=0`
+
+You'll probably need to change the source to open the correct device.
+
 To build the application, just do:
 
 `make`
