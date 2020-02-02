@@ -35,20 +35,20 @@ ZRESULT zm_read_crlf() {
     DEBUGF("CRLF: Got error on first character: 0x%04x\n", c);
     return c;
   } else if (c == LF || c == (LF | 0x80)) {
-    DEBUGF("CRLF: Got LF on first character: OK\n");
+    TRACEF("CRLF: Got LF on first character: OK\n");
     return OK;
   } else if (c == CR || c == (CR | 0x80)) {
-    DEBUGF("CRLF: Got CR on first character, await LF\n");
+    TRACEF("CRLF: Got CR on first character, await LF\n");
     c = zm_recv();
 
     if (IS_ERROR(c)) {
       return c;
       DEBUGF("CRLF: Got error on second character: 0x%04x\n", c);
     } else if (c == LF || c == (LF | 0x80)) {
-      DEBUGF("CRLF: Got LF on second character: OK\n");
+      TRACEF("CRLF: Got LF on second character: OK\n");
       return OK;
     } else {
-      DEBUGF("CRLF: Got corruption on second character: 0x%04x\n", c);
+      TRACEF("CRLF: Got corruption on second character: 0x%04x\n", c);
       return CORRUPTED;
     }
   } else {
@@ -90,11 +90,11 @@ ZRESULT zm_read_escaped() {
     case XOFF | 0x80:
       continue;
     case ZDLE:
-      DEBUGF("  >> READ_ESCAPED: Got ZDLE\n");
+      TRACEF("  >> READ_ESCAPED: Got ZDLE\n");
       goto gotzdle;
     default:
       // TODO support control escaping?
-      DEBUGF("  >> READ_ESCAPED: Got 0x%02x [%c]\n", c, c & 0xff);
+      TRACEF("  >> READ_ESCAPED: Got 0x%02x [%c]\n", c, c & 0xff);
       return c;
     }
   }
@@ -176,7 +176,7 @@ ZRESULT zm_read_escaped() {
     return GOT_CRCW;
   default:
     if ((c & 0x60) == 0x40) {
-      DEBUGF("  >> READ_ESCAPED: Got escaped character: 0x%02x\n", (c ^ 0x40));
+      TRACEF("  >> READ_ESCAPED: Got escaped character: 0x%02x\n", (c ^ 0x40));
       return c ^ 0x40;
     }
   }
@@ -262,15 +262,17 @@ ZRESULT zm_await(char *str, char *buf, int buf_size) {
         buf[ptr++] = c;
       }
 
-      DEBUGF("Buf is [");
+#ifdef ZTRACE
+      TRACEF("Buf is [");
       for (int i = 0; i < buf_size; i++) {
-        DEBUGF("%02x ", buf[i]);
+        TRACEF("%02x ", buf[i]);
       }
-      DEBUGF("]\n");
+      TRACEF("]\n");
+#endif
 
       // TODO if we don't use strcmp, we don't need buf to be one char longer...
       if (strcmp(str, buf) == 0) {
-        DEBUGF("Target received; Await completed...\n");
+        DEBUGF("AWAIT: Target received; Await completed...\n");
         return OK;
       }
     }
@@ -288,18 +290,20 @@ ZRESULT zm_await_zdle() {
       switch (c) {
       case ZPAD:
       case ZPAD | 0200:
-        DEBUGF("Got ZPAD...\n");
+        TRACEF("Got ZPAD...\n");
         continue;
       case ZDLE:
-        DEBUGF("Got ZDLE\n");
+        TRACEF("Got ZDLE\n");
         return OK;
       default:
+#ifdef ZDEBUG
         DEBUGF("Got unknown (%08x)", c);
         if (NONCONTROL(c)) {
           DEBUGF(" [%c]\n", c);
         } else {
           DEBUGF("\n");
         }
+#endif
         continue;
       }
     }
@@ -324,7 +328,7 @@ ZRESULT zm_read_hex_header(ZHDR *hdr) {
       DEBUGF("READ_HEX: Character %d/1 is EOF\n", i);
       return CLOSED;
     } else {
-      DEBUGF("READ_HEX: Character %d/1 is good: 0x%02x\n", i, c1);
+      TRACEF("READ_HEX: Character %d/1 is good: 0x%02x\n", i, c1);
       uint16_t c2 = zm_recv();
 
       if (IS_ERROR(c2)) {
@@ -334,25 +338,25 @@ ZRESULT zm_read_hex_header(ZHDR *hdr) {
         DEBUGF("READ_HEX: Character %d/2 is EOF\n", i);
         return CLOSED;
       } else {
-        DEBUGF("READ_HEX: Character %d/2 is good: 0x%02x\n", i, c2);
+        TRACEF("READ_HEX: Character %d/2 is good: 0x%02x\n", i, c2);
         uint16_t b = zm_hex_to_byte(c1,c2);
 
         if (IS_ERROR(b)) {
           DEBUGF("READ_HEX: hex_to_byte %d is error: 0x%04x\n", i, b);
           return b;
         } else {
-          DEBUGF("READ_HEX: Byte %d is good: 0x%02x\n", i, b);
-          DEBUGF("Byte %d; hdr at 0x%0lx; ptr at 0x%0lx\n", i, (uint64_t)hdr, (uint64_t)ptr);
+          TRACEF("READ_HEX: Byte %d is good: 0x%02x\n", i, b);
+          TRACEF("Byte %d; hdr at 0x%0lx; ptr at 0x%0lx\n", i, (uint64_t)hdr, (uint64_t)ptr);
           *ptr++ = (uint8_t)b;
 
           if (i < ZHDR_SIZE - 2) {
-            DEBUGF("Will update CRC for byte %d\n", i);
+            TRACEF("Will update CRC for byte %d\n", i);
             crc = update_crc_ccitt(crc, b);
           } else {
-            DEBUGF("Won't update CRC for byte %d\n", i);
+            TRACEF("Won't update CRC for byte %d\n", i);
           }
 
-          DEBUGF("READ_HEX: CRC after byte %d is 0x%04x\n", i, crc);
+          TRACEF("READ_HEX: CRC after byte %d is 0x%04x\n", i, crc);
         }
       }
     }
@@ -376,15 +380,15 @@ ZRESULT zm_read_binary16_header(ZHDR *hdr) {
       DEBUGF("READ_BIN16: Character %d/1 is error: 0x%04x\n", i, b);
       return b;
     } else {
-      DEBUGF("READ_BIN16: Byte %d is good: 0x%02x\n", i, b);
-      DEBUGF("Byte %d; hdr at 0x%0lx; ptr at 0x%0lx\n", i, (uint64_t)hdr, (uint64_t)ptr);
+      TRACEF("READ_BIN16: Byte %d is good: 0x%02x\n", i, b);
+      TRACEF("Byte %d; hdr at 0x%0lx; ptr at 0x%0lx\n", i, (uint64_t)hdr, (uint64_t)ptr);
       *ptr++ = (uint8_t)b;
 
       if (i < ZHDR_SIZE - 2) {
-        DEBUGF("Will update CRC for byte %d\n", i);
+        TRACEF("Will update CRC for byte %d\n", i);
         crc = update_crc_ccitt(crc, b);
       } else {
-        DEBUGF("Won't update CRC for byte %d\n", i);
+        TRACEF("Won't update CRC for byte %d\n", i);
       }
 
       DEBUGF("READ_BIN16: CRC after byte %d is 0x%04x\n", i, crc);
@@ -410,10 +414,10 @@ ZRESULT zm_await_header(ZHDR *hdr) {
       result = zm_read_hex_header(hdr);
 
       if (result == OK) {
-        DEBUGF("Got valid header :)\n");
+        DEBUGF("Got valid header\n");
         return zm_read_crlf();
       } else {
-        DEBUGF("Didn't get valid header...\n");
+        DEBUGF("Didn't get valid header [0x%02x]\n", result);
         return result;
       }
     case ZBIN16:
@@ -421,10 +425,10 @@ ZRESULT zm_await_header(ZHDR *hdr) {
       result = zm_read_binary16_header(hdr);
 
       if (result == OK) {
-        DEBUGF("Got valid header :)\n");
+        DEBUGF("Got valid header\n");
         return OK;
       } else {
-        DEBUGF("Didn't get valid header...\n");
+        DEBUGF("Didn't get valid header [0x%02x]\n", result);
         return result;
       }
     case ZBIN32:

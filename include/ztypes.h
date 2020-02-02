@@ -176,9 +176,14 @@ typedef struct {
 
 #ifdef ZDEBUG
 #define DEBUGF(...)       printf(__VA_ARGS__)
-
 #else
 #define DEBUGF(...)
+#endif
+
+#ifdef ZTRACE
+#define TRACEF(...)       printf(__VA_ARGS__)
+#else
+#define TRACEF(...)
 #endif
 
 #ifdef __cplusplus
