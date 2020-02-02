@@ -134,6 +134,7 @@ int main() {
             DEBUGF("Is ZFILE\n");
 
             switch (hdr.flags.f0) {
+            case 0:     /* no special treatment - default to ZCBIN */
             case ZCBIN:
               DEBUGF("--> Binary receive\n");
               break;
