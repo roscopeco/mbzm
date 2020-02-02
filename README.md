@@ -83,8 +83,8 @@ Now you can use e.g. `sz` to send a file to it:
 To use, you'll need to implement two functions in your code:
 
 ```c
-uint16_t recv();
-uint16_t send(uint8_t chr);
+ZRESULT zm_recv();
+ZRESULT zm_send(uint8_t chr);
 ```
 
 These should return one of the codes used in the rest of the library
@@ -92,6 +92,10 @@ to indicate an error if one occurs (see `ztypes.h` for error codes).
 
 If there isn't a problem, `recv` should return the next byte from the serial
 link. `send` should return `OK`.
+
+The `ZRESULT` type encodes various things depending on the result of the
+function. `ztypes.h` defines a few macros that can help with decoding these
+results (e.g. `IS_ERROR`, `IS_FIN`, `ZVALUE` etc).
 
 #### Cross-compiling
 
