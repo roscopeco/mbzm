@@ -20,17 +20,17 @@
 #include "ztypes.h"
 
 #ifdef __cplusplus
-extern 'C' {
+extern "C" {
 #endif
 
 /*
  * One-shot calculate the CRC for a ZHDR and set the
  * crc1 and crc2 fields appropriately.
  */
-void calc_hdr_crc(ZHDR *hdr);
+void zm_calc_hdr_crc(ZHDR *hdr);
 
-uint16_t calc_data_crc(uint8_t *buf, uint16_t len);
-uint32_t calc_data_crc32(uint8_t *buf, uint16_t len);
+uint16_t zm_calc_data_crc(uint8_t *buf, uint16_t len);
+uint32_t zm_calc_data_crc32(uint8_t *buf, uint16_t len);
 
 /*
  * Converts ZHDR to wire-format hex header. Expects CRC is already
@@ -43,9 +43,9 @@ uint32_t calc_data_crc32(uint8_t *buf, uint16_t len);
  * Returns actual used length (max 0xff bytes), or OUT_OF_SPACE
  * if the supplied buffer is not large enough.
  */
-ZRESULT to_hex_header(ZHDR *hdr, uint8_t *buf, int max_len);
+ZRESULT zm_to_hex_header(ZHDR *hdr, uint8_t *buf, int max_len);
 
-ZRESULT check_header_crc16(ZHDR *hdr, uint16_t crc);
+ZRESULT zm_check_header_crc16(ZHDR *hdr, uint16_t crc);
 
 #ifdef ZDEBUG
 /* this is wasteful, but only if debugging is on, so, y'know... */

@@ -9,7 +9,8 @@
  * Copyright (c)2020 Ross Bamford
  * See top-level LICENSE.md for licence information.
  *
- * Initialisation for rz.c example program
+ * Initialisation for rz.c example program.
+ * This is directly included by rz.c.
  * ------------------------------------------------------------
  */
 
@@ -97,6 +98,6 @@ static uint8_t zfin_buf[HEX_HDR_STR_LEN + 1];
 
 static ZRESULT init_hdr_buf(ZHDR *hdr, uint8_t *buf) {
   buf[HEX_HDR_STR_LEN] = 0;
-  calc_hdr_crc(hdr);
-  return to_hex_header(hdr, buf, HEX_HDR_STR_LEN);
+  zm_calc_hdr_crc(hdr);
+  return zm_to_hex_header(hdr, buf, HEX_HDR_STR_LEN);
 }

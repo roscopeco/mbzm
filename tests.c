@@ -41,12 +41,17 @@ uint16_t set_buf(char* buf, int len) {
 }
 
 /* recv implementation for use in tests */
-ZRESULT recv() {
+ZRESULT zm_recv() {
   if (buf_ptr < buf_limit) {
     return *buf_ptr++;
   } else {
     return CLOSED;
   }
+}
+
+/* send implementation for use in tests */
+ZRESULT zm_send(uint8_t c) {
+  return OK;
 }
 
 /* Tests of the tests */
@@ -55,12 +60,12 @@ void test_recv_buffer() {
 
   set_buf("abc", 3);
 
-  TEST_CHECK(recv() == 'a');
-  TEST_CHECK(recv() == 'b');
-  TEST_CHECK(recv() == 'c');
+  TEST_CHECK(zm_recv() == 'a');
+  TEST_CHECK(zm_recv() == 'b');
+  TEST_CHECK(zm_recv() == 'c');
 
-  TEST_CHECK(recv() == CLOSED);
-  TEST_CHECK(recv() == CLOSED);
+  TEST_CHECK(zm_recv() == CLOSED);
+  TEST_CHECK(zm_recv() == CLOSED);
 }
 
 /* The actual tests */
@@ -92,6 +97,12 @@ void test_zvalue() {
   TEST_CHECK(ZVALUE(0x0001) == 0x01);
   TEST_CHECK(ZVALUE(0x1000) == 0x00);
   TEST_CHECK(ZVALUE(0xf00d) == 0x0d);
+
+  TEST_CHECK(ZVALUE(GOT_CRCE) == ZCRCE);
+  TEST_CHECK(ZVALUE(GOT_CRCG) == ZCRCG);
+  TEST_CHECK(ZVALUE(GOT_CRCQ) == ZCRCQ);
+  TEST_CHECK(ZVALUE(GOT_CRCW) == ZCRCW);
+
 }
 
 void test_noncontrol() {
@@ -104,117 +115,127 @@ void test_noncontrol() {
   }
 }
 
-void test_hex_to_nybble() {
-  TEST_CHECK(hex_to_nybble('0') == 0x0);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('0')) == 0);
-  TEST_CHECK(hex_to_nybble('1') == 0x1);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('1')) == 0);
-  TEST_CHECK(hex_to_nybble('2') == 0x2);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('2')) == 0);
-  TEST_CHECK(hex_to_nybble('3') == 0x3);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('3')) == 0);
-  TEST_CHECK(hex_to_nybble('4') == 0x4);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('4')) == 0);
-  TEST_CHECK(hex_to_nybble('5') == 0x5);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('5')) == 0);
-  TEST_CHECK(hex_to_nybble('6') == 0x6);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('6')) == 0);
-  TEST_CHECK(hex_to_nybble('7') == 0x7);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('7')) == 0);
-  TEST_CHECK(hex_to_nybble('8') == 0x8);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('8')) == 0);
-  TEST_CHECK(hex_to_nybble('9') == 0x9);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('9')) == 0);
-  TEST_CHECK(hex_to_nybble('a') == 0xa);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('a')) == 0);
-  TEST_CHECK(hex_to_nybble('b') == 0xb);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('b')) == 0);
-  TEST_CHECK(hex_to_nybble('c') == 0xc);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('c')) == 0);
-  TEST_CHECK(hex_to_nybble('d') == 0xd);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('d')) == 0);
-  TEST_CHECK(hex_to_nybble('e') == 0xe);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('e')) == 0);
-  TEST_CHECK(hex_to_nybble('f') == 0xf);
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('f')) == 0);
+void test_is_fin() {
+  TEST_CHECK(IS_FIN(OK) == false);
+  TEST_CHECK(IS_FIN(BAD_DIGIT) == false);
 
-  TEST_CHECK(ERROR_CODE(hex_to_nybble('A')) == BAD_DIGIT);
+  TEST_CHECK(IS_FIN(GOT_CRCE) == true);
+  TEST_CHECK(IS_FIN(GOT_CRCG) == true);
+  TEST_CHECK(IS_FIN(GOT_CRCQ) == true);
+  TEST_CHECK(IS_FIN(GOT_CRCW) == true);
+}
+
+void test_hex_to_nybble() {
+  TEST_CHECK(zm_hex_to_nybble('0') == 0x0);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('0')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('1') == 0x1);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('1')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('2') == 0x2);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('2')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('3') == 0x3);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('3')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('4') == 0x4);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('4')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('5') == 0x5);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('5')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('6') == 0x6);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('6')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('7') == 0x7);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('7')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('8') == 0x8);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('8')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('9') == 0x9);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('9')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('a') == 0xa);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('a')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('b') == 0xb);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('b')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('c') == 0xc);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('c')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('d') == 0xd);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('d')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('e') == 0xe);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('e')) == 0);
+  TEST_CHECK(zm_hex_to_nybble('f') == 0xf);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('f')) == 0);
+
+  TEST_CHECK(ERROR_CODE(zm_hex_to_nybble('A')) == BAD_DIGIT);
 }
 
 void test_hex_to_byte() {
-  TEST_CHECK(hex_to_byte('0', '0') == 0x00);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('0', '0')) == 0);
-  TEST_CHECK(hex_to_byte('0', '1') == 0x01);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('0', '1')) == 0);
-  TEST_CHECK(hex_to_byte('0', 'e') == 0x0e);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('0', 'e')) == 0);
-  TEST_CHECK(hex_to_byte('0', 'f') == 0x0f);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('0', 'f')) == 0);
-  TEST_CHECK(hex_to_byte('1', '0') == 0x10);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('1', '0')) == 0);
-  TEST_CHECK(hex_to_byte('1', '1') == 0x11);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('1', '1')) == 0);
-  TEST_CHECK(hex_to_byte('1', 'e') == 0x1e);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('1', 'e')) == 0);
-  TEST_CHECK(hex_to_byte('1', 'f') == 0x1f);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('1', 'f')) == 0);
-  TEST_CHECK(hex_to_byte('f', '0') == 0xf0);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('f', '0')) == 0);
-  TEST_CHECK(hex_to_byte('f', '1') == 0xf1);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('f', '1')) == 0);
-  TEST_CHECK(hex_to_byte('f', 'e') == 0xfe);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('f', 'e')) == 0);
-  TEST_CHECK(hex_to_byte('f', 'f') == 0xff);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('f', 'f')) == 0);
+  TEST_CHECK(zm_hex_to_byte('0', '0') == 0x00);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('0', '0')) == 0);
+  TEST_CHECK(zm_hex_to_byte('0', '1') == 0x01);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('0', '1')) == 0);
+  TEST_CHECK(zm_hex_to_byte('0', 'e') == 0x0e);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('0', 'e')) == 0);
+  TEST_CHECK(zm_hex_to_byte('0', 'f') == 0x0f);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('0', 'f')) == 0);
+  TEST_CHECK(zm_hex_to_byte('1', '0') == 0x10);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('1', '0')) == 0);
+  TEST_CHECK(zm_hex_to_byte('1', '1') == 0x11);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('1', '1')) == 0);
+  TEST_CHECK(zm_hex_to_byte('1', 'e') == 0x1e);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('1', 'e')) == 0);
+  TEST_CHECK(zm_hex_to_byte('1', 'f') == 0x1f);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('1', 'f')) == 0);
+  TEST_CHECK(zm_hex_to_byte('f', '0') == 0xf0);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('f', '0')) == 0);
+  TEST_CHECK(zm_hex_to_byte('f', '1') == 0xf1);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('f', '1')) == 0);
+  TEST_CHECK(zm_hex_to_byte('f', 'e') == 0xfe);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('f', 'e')) == 0);
+  TEST_CHECK(zm_hex_to_byte('f', 'f') == 0xff);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('f', 'f')) == 0);
 
-  TEST_CHECK(ERROR_CODE(hex_to_byte('0', 'A')) == BAD_DIGIT);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('A', '0')) == BAD_DIGIT);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('A', 'A')) == BAD_DIGIT);
-  TEST_CHECK(ERROR_CODE(hex_to_byte('N', 'O')) == BAD_DIGIT);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('0', 'A')) == BAD_DIGIT);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('A', '0')) == BAD_DIGIT);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('A', 'A')) == BAD_DIGIT);
+  TEST_CHECK(ERROR_CODE(zm_hex_to_byte('N', 'O')) == BAD_DIGIT);
 }
 
 void test_nybble_to_hex() {
-  TEST_CHECK(nybble_to_hex(0x0) == '0');
-  TEST_CHECK(nybble_to_hex(0x1) == '1');
-  TEST_CHECK(nybble_to_hex(0x2) == '2');
-  TEST_CHECK(nybble_to_hex(0x3) == '3');
-  TEST_CHECK(nybble_to_hex(0x4) == '4');
-  TEST_CHECK(nybble_to_hex(0x5) == '5');
-  TEST_CHECK(nybble_to_hex(0x6) == '6');
-  TEST_CHECK(nybble_to_hex(0x7) == '7');
-  TEST_CHECK(nybble_to_hex(0x8) == '8');
-  TEST_CHECK(nybble_to_hex(0x9) == '9');
-  TEST_CHECK(nybble_to_hex(0xa) == 'a');
-  TEST_CHECK(nybble_to_hex(0xb) == 'b');
-  TEST_CHECK(nybble_to_hex(0xc) == 'c');
-  TEST_CHECK(nybble_to_hex(0xd) == 'd');
-  TEST_CHECK(nybble_to_hex(0xe) == 'e');
-  TEST_CHECK(nybble_to_hex(0xf) == 'f');
+  TEST_CHECK(zm_nybble_to_hex(0x0) == '0');
+  TEST_CHECK(zm_nybble_to_hex(0x1) == '1');
+  TEST_CHECK(zm_nybble_to_hex(0x2) == '2');
+  TEST_CHECK(zm_nybble_to_hex(0x3) == '3');
+  TEST_CHECK(zm_nybble_to_hex(0x4) == '4');
+  TEST_CHECK(zm_nybble_to_hex(0x5) == '5');
+  TEST_CHECK(zm_nybble_to_hex(0x6) == '6');
+  TEST_CHECK(zm_nybble_to_hex(0x7) == '7');
+  TEST_CHECK(zm_nybble_to_hex(0x8) == '8');
+  TEST_CHECK(zm_nybble_to_hex(0x9) == '9');
+  TEST_CHECK(zm_nybble_to_hex(0xa) == 'a');
+  TEST_CHECK(zm_nybble_to_hex(0xb) == 'b');
+  TEST_CHECK(zm_nybble_to_hex(0xc) == 'c');
+  TEST_CHECK(zm_nybble_to_hex(0xd) == 'd');
+  TEST_CHECK(zm_nybble_to_hex(0xe) == 'e');
+  TEST_CHECK(zm_nybble_to_hex(0xf) == 'f');
 
-  TEST_CHECK(IS_ERROR(nybble_to_hex(0x10)) == true);
-  TEST_CHECK(IS_ERROR(nybble_to_hex(0xFF)) == true);
+  TEST_CHECK(IS_ERROR(zm_nybble_to_hex(0x10)) == true);
+  TEST_CHECK(IS_ERROR(zm_nybble_to_hex(0xFF)) == true);
 }
 
 void test_byte_to_hex() {
   uint8_t buf[2];
 
-  TEST_CHECK(byte_to_hex(0x00, buf) == OK);
+  TEST_CHECK(zm_byte_to_hex(0x00, buf) == OK);
   TEST_CHECK(buf[0] == '0');
   TEST_CHECK(buf[1] == '0');
 
-  TEST_CHECK(byte_to_hex(0x01, buf) == OK);
+  TEST_CHECK(zm_byte_to_hex(0x01, buf) == OK);
   TEST_CHECK(buf[0] == '0');
   TEST_CHECK(buf[1] == '1');
 
-  TEST_CHECK(byte_to_hex(0x0f, buf) == OK);
+  TEST_CHECK(zm_byte_to_hex(0x0f, buf) == OK);
   TEST_CHECK(buf[0] == '0');
   TEST_CHECK(buf[1] == 'f');
 
-  TEST_CHECK(byte_to_hex(0x10, buf) == OK);
+  TEST_CHECK(zm_byte_to_hex(0x10, buf) == OK);
   TEST_CHECK(buf[0] == '1');
   TEST_CHECK(buf[1] == '0');
 
-  TEST_CHECK(byte_to_hex(0xff, buf) == OK);
+  TEST_CHECK(zm_byte_to_hex(0xff, buf) == OK);
   TEST_CHECK(buf[0] == 'f');
   TEST_CHECK(buf[1] == 'f');
 }
@@ -224,7 +245,7 @@ void test_read_hex_header() {
 
   // All zeros - CRC is zero
   set_buf("00000000000000", 14);
-  TEST_CHECK(read_hex_header(&hdr) == OK);
+  TEST_CHECK(zm_read_hex_header(&hdr) == OK);
 
   TEST_CHECK(hdr.type == 0);
   TEST_CHECK(hdr.flags.f0 == 0);
@@ -236,7 +257,7 @@ void test_read_hex_header() {
 
   // Correct CRC - 01 02 03 04 05 - CRC is 0x8208
   set_buf("01020304058208", 14);
-  TEST_CHECK(read_hex_header(&hdr) == OK);
+  TEST_CHECK(zm_read_hex_header(&hdr) == OK);
 
   TEST_CHECK(hdr.type == 0x01);
   TEST_CHECK(hdr.position.p0 == 0x02);
@@ -253,7 +274,7 @@ void test_read_hex_header() {
   // Incorrect CRC - 01 02 03 04 05 - CRC is 0x8208, but expect 0xc0c0
   // Note that header left intact for debugging
   set_buf("0102030405c0c0", 14);
-  TEST_CHECK(read_hex_header(&hdr) == BAD_CRC);
+  TEST_CHECK(zm_read_hex_header(&hdr) == BAD_CRC);
 
   TEST_CHECK(hdr.type == 0x01);
   TEST_CHECK(hdr.position.p0 == 0x02);
@@ -270,7 +291,7 @@ void test_read_hex_header() {
   // Invalid data - 01 02 0Z 04 05
   // Note that header is undefined
   set_buf("01020Z0405c0c0", 14);
-  TEST_CHECK(read_hex_header(&hdr) == BAD_DIGIT);
+  TEST_CHECK(zm_read_hex_header(&hdr) == BAD_DIGIT);
 }
 
 void test_calc_hdr_crc() {
@@ -284,7 +305,7 @@ void test_calc_hdr_crc() {
     }
   };
 
-  calc_hdr_crc(&hdr);
+  zm_calc_hdr_crc(&hdr);
 
   TEST_CHECK(hdr.crc1 == 0x82);
   TEST_CHECK(hdr.crc2 == 0x08);
@@ -301,7 +322,7 @@ void test_calc_hdr_crc() {
     }
   };
 
-  calc_hdr_crc(&real_hdr);
+  zm_calc_hdr_crc(&real_hdr);
 
   TEST_CHECK(real_hdr.crc1 == 0xcd);
   TEST_CHECK(real_hdr.crc2 == 0x85);
@@ -326,27 +347,27 @@ void test_to_hex_header() {
   memset(buf, 0, 0xff);
 
   // Too small - buffer not modified
-  TEST_CHECK(to_hex_header(&hdr, buf, 0x01) == OUT_OF_SPACE);
+  TEST_CHECK(zm_to_hex_header(&hdr, buf, 0x01) == OUT_OF_SPACE);
   TEST_CHECK(buf[0] == 0);
 
-  // Too small - buffer not modified
-  TEST_CHECK(to_hex_header(&hdr, buf, HEX_HDR_STR_LEN - 1) == OUT_OF_SPACE);
+  // Still too small - buffer not modified
+  TEST_CHECK(zm_to_hex_header(&hdr, buf, HEX_HDR_STR_LEN - 1) == OUT_OF_SPACE);
   TEST_CHECK(buf[0] == 0);
 
   // Exactly correct size
-  TEST_CHECK(to_hex_header(&hdr, buf, HEX_HDR_STR_LEN) == HEX_HDR_STR_LEN);
+  TEST_CHECK(zm_to_hex_header(&hdr, buf, HEX_HDR_STR_LEN) == HEX_HDR_STR_LEN);
   TEST_CHECK(strcmp("B01020304050a0b\r\x8a", (const char*)buf) == 0);
 
   memset(buf, 0, 0xff);
 
   // Exactly correct size
-  TEST_CHECK(to_hex_header(&hdr, buf, HEX_HDR_STR_LEN) == HEX_HDR_STR_LEN);
+  TEST_CHECK(zm_to_hex_header(&hdr, buf, HEX_HDR_STR_LEN) == HEX_HDR_STR_LEN);
   TEST_CHECK(strcmp("B01020304050a0b\r\x8a", (const char*)buf) == 0);
 
   memset(buf, 0, 0xff);
 
   // More than enough space
-  TEST_CHECK(to_hex_header(&hdr, buf, 0xff) == HEX_HDR_STR_LEN);
+  TEST_CHECK(zm_to_hex_header(&hdr, buf, 0xff) == HEX_HDR_STR_LEN);
   TEST_CHECK(strcmp("B01020304050a0b\r\x8a", (const char*)buf) == 0);
 }
 
@@ -354,23 +375,23 @@ void test_read_escaped() {
   // simple non-control characters
   set_buf("ABC", 3);
 
-  TEST_CHECK(read_escaped() == 'A');
-  TEST_CHECK(read_escaped() == 'B');
-  TEST_CHECK(read_escaped() == 'C');
+  TEST_CHECK(zm_read_escaped() == 'A');
+  TEST_CHECK(zm_read_escaped() == 'B');
+  TEST_CHECK(zm_read_escaped() == 'C');
 
   // CLOSED if end of stream
-  TEST_CHECK(read_escaped() == CLOSED);
+  TEST_CHECK(zm_read_escaped() == CLOSED);
 
   // XON/XOFF are skipped
   set_buf("\x11\x11\x13Z", 4);
 
-  TEST_CHECK(read_escaped() == 'Z');
-  TEST_CHECK(read_escaped() == CLOSED);
+  TEST_CHECK(zm_read_escaped() == 'Z');
+  TEST_CHECK(zm_read_escaped() == CLOSED);
 
   // 5x CAN cancels
   set_buf("\x18\x18\x18\x18\x18ZYX", 8);
-  TEST_CHECK(read_escaped() == CANCELLED);
-  TEST_CHECK(read_escaped() == 'Z');
+  TEST_CHECK(zm_read_escaped() == CANCELLED);
+  TEST_CHECK(zm_read_escaped() == 'Z');
 }
 
 TEST_LIST = {
@@ -379,6 +400,7 @@ TEST_LIST = {
   { "GET_ERROR_CODE",       test_get_error_code   },
   { "ZVALUE",               test_zvalue           },
   { "NONCONTROL",           test_noncontrol       },
+  { "IS_FIN",               test_is_fin           },
   { "hex_to_nybble",        test_hex_to_nybble    },
   { "hex_to_byte",          test_hex_to_byte      },
   { "nybble_to_hex",        test_nybble_to_hex    },

@@ -21,7 +21,7 @@
 #include "ztypes.h"
 
 #ifdef __cplusplus
-extern 'C' {
+extern "C" {
 #endif
 
 #define NONCONTROL(c)    ((bool)((uint8_t)(c & 0xe0)))
@@ -29,39 +29,52 @@ extern 'C' {
 /*
  * The lib doesn't implement these - they need to be provided.
  */
-ZRESULT recv();
-ZRESULT send(uint8_t chr);
+ZRESULT zm_recv();
+ZRESULT zm_send(uint8_t chr);
 
 /*
  * Receive CR/LF (with CR being optional).
  */
-ZRESULT read_crlf();
+ZRESULT zm_read_crlf();
 
-ZRESULT read_hex_byte();
+/*
+ * Read two ASCII characters and convert them from hex.
+ */
+ZRESULT zm_read_hex_byte();
+
+/*
+ * Read character, taking care of ZMODEM Data Link Escapes (ZDLE)
+ * and swallowing XON/XOFF.
+ */
+ZRESULT zm_read_escaped();
 
 /*
  * buf must be one character longer than the string...
  * Trashes buf, for obvious reasons.
  */
-ZRESULT await(char *str, char *buf, int buf_size);
-ZRESULT await_zdle();
-ZRESULT await_header(ZHDR *hdr);
+ZRESULT zm_await(char *str, char *buf, int buf_size);
+ZRESULT zm_await_zdle();
+ZRESULT zm_await_header(ZHDR *hdr);
 
-ZRESULT read_hex_header(ZHDR *hdr);
-ZRESULT read_binary16_header(ZHDR *hdr);
+ZRESULT zm_read_hex_header(ZHDR *hdr);
+ZRESULT zm_read_binary16_header(ZHDR *hdr);
 
-ZRESULT read_escaped();
 
 /*
  * len specifies the maximum length to read on entry,
  * and contains actual length on return.
  */
-ZRESULT read_data_block(uint8_t *buf, uint16_t *len);
+ZRESULT zm_read_data_block(uint8_t *buf, uint16_t *len);
 
 /*
  * Send a null-terminated string.
  */
-ZRESULT send_sz(uint8_t *data);
+ZRESULT zm_send_sz(uint8_t *data);
+
+/*
+ * Send the given header as hex, with ZPAD/ZDLE preamble.
+ */
+ZRESULT zm_send_hex_hdr(uint8_t *buf);
 
 #ifdef __cplusplus
 }

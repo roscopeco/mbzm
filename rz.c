@@ -24,7 +24,10 @@
 static FILE *com;
 static FILE *out;
 
-ZRESULT recv() {
+/*
+ * Implementation-defined receive character function.
+ */
+ZRESULT zm_recv() {
   register int result = fgetc(com);
 
   if (result == EOF) {
@@ -34,7 +37,10 @@ ZRESULT recv() {
   }
 }
 
-ZRESULT send(uint8_t chr) {
+/*
+ * Implementation-defined send character function.
+ */
+ZRESULT zm_send(uint8_t chr) {
   register int result = putc((char)chr, com);
 
   if (result == EOF) {
@@ -42,14 +48,6 @@ ZRESULT send(uint8_t chr) {
   } else {
     return OK;
   }
-}
-
-static ZRESULT send_sz_hex_hdr(uint8_t *buf) {
-  send(ZPAD);
-  send(ZPAD);
-  send(ZDLE);
-
-  return send_sz(buf);
 }
 
 int main() {
@@ -92,11 +90,11 @@ int main() {
 
     PRINTF("rosco_m68k ZMODEM receive example v0.01 - Awaiting remote transfer initiation...\n");
 
-    if (await("rz\r", (char*)rzr_buf, 4) == OK) {
+    if (zm_await("rz\r", (char*)rzr_buf, 4) == OK) {
       DEBUGF("Got rzr...\n");
 
       while (true) {
-        uint16_t result = await_header(&hdr);
+        uint16_t result = zm_await_header(&hdr);
 
         switch (result) {
         case OK:
@@ -107,7 +105,7 @@ int main() {
           case ZEOF:
             DEBUGF("Is ZRQINIT or ZEOF\n");
 
-            result = send_sz_hex_hdr(zrinit_buf);
+            result = zm_send_hex_hdr(zrinit_buf);
 
             if (result == OK) {
               DEBUGF("Send ZRINIT was OK\n");
@@ -121,7 +119,7 @@ int main() {
           case ZFIN:
             DEBUGF("Is ZFIN\n");
 
-            result = send_sz_hex_hdr(zfin_buf);
+            result = zm_send_hex_hdr(zfin_buf);
 
             if (result == OK) {
               DEBUGF("Send ZFIN was OK\n");
@@ -150,7 +148,7 @@ int main() {
             }
 
             count = DATA_BUF_LEN;
-            result = read_data_block(data_buf, &count);
+            result = zm_read_data_block(data_buf, &count);
             DEBUGF("Result of data block read is [0x%04x] (got %d character(s))\n", result, count);
 
             if (!IS_ERROR(result)) {
@@ -162,7 +160,7 @@ int main() {
                 goto cleanup;
               }
 
-              result = send_sz_hex_hdr(zrpos_buf);
+              result = zm_send_hex_hdr(zrpos_buf);
 
               if (result == OK) {
                 DEBUGF("Send ZRPOS was OK\n");
@@ -181,7 +179,7 @@ int main() {
 
             while (true) {
               count = DATA_BUF_LEN;
-              result = read_data_block(data_buf, &count);
+              result = zm_read_data_block(data_buf, &count);
               DEBUGF("Result of data block read is [0x%04x] (got %d character(s))\n", result, count);
 
               received_data_size += (count - 1);
@@ -207,7 +205,7 @@ int main() {
                   // Frame continues, ACK required
                   DEBUGF("Got CRCQ; Frame continues [ACK]\n");
 
-                  result = send_sz_hex_hdr(zack_buf);
+                  result = zm_send_hex_hdr(zack_buf);
 
                   if (result == OK) {
                     DEBUGF("Send ZACK was OK\n");
@@ -221,7 +219,7 @@ int main() {
                   // End of frame, header follows, ZACK expected.
                   DEBUGF("Got CRCW; Frame done [ACK]\n");
 
-                  result = send_sz_hex_hdr(zack_buf);
+                  result = zm_send_hex_hdr(zack_buf);
 
                   if (result == OK) {
                     DEBUGF("Send ZACK was OK\n");
@@ -236,7 +234,7 @@ int main() {
               } else {
                 DEBUGF("Error while receiving block: 0x%04x\n", result);
 
-                result = send_sz_hex_hdr(znak_buf);
+                result = zm_send_hex_hdr(znak_buf);
 
                 if (result == OK) {
                   DEBUGF("Send ZNACK was OK\n");
@@ -257,12 +255,30 @@ int main() {
           break;
         case BAD_CRC:
           DEBUGF("Didn't get valid header - CRC Check failed\n");
-          // TODO send NAK
+
+          result = zm_send_hex_hdr(znak_buf);
+
+          if (result == OK) {
+            DEBUGF("Send ZNACK was OK\n");
+          } else if(result == CLOSED) {
+            FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
+            goto cleanup;
+          }
+
           continue;
         default:
           DEBUGF("Didn't get valid header - result is 0x%04x\n", result);
-          // TODO what?
-          return false;
+
+          result = zm_send_hex_hdr(znak_buf);
+
+          if (result == OK) {
+            DEBUGF("Send ZNACK was OK\n");
+          } else if(result == CLOSED) {
+            FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
+            goto cleanup;
+          }
+
+          continue;
         }
       }
     }

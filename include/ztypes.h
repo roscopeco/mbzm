@@ -21,7 +21,7 @@
 #include <stdint.h>
 
 #ifdef __cplusplus
-extern 'C' {
+extern "C" {
 #endif
 
 // ASCII Control characters
@@ -112,7 +112,6 @@ extern 'C' {
 #define ZVALUE(x)         ((uint8_t)(x & 0xff))
 
 // Nybble to byte / byte to word / vice-versa
-// TODO check - still shl on LE plaf?
 #define NTOB(n1, n2)      (n1 << 4 | n2)        /* 2 nybbles    -> byte                     */
 #define BTOW(b1, b2)      (b1 << 8 | b2)        /* 2 bytes      -> word                     */
 #define BMSN(b)           ((b & 0xf0) >> 4)     /* byte         -> most-significant nybble  */

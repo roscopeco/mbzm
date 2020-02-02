@@ -16,10 +16,12 @@
 
 #ifndef __ROSCO_M68K_ZEMBEDDED_H
 #define __ROSCO_M68K_ZEMBEDDED_H
+#ifdef ZEMBEDDED
 
 #include <stddef.h>
 
 void *memset (void *mem, int val, size_t len);
 extern int strcmp (const char *s1, const char *s2);
 
+#endif
 #endif /* __ROSCO_M68K_ZEMBEDDED_H */

@@ -16,17 +16,9 @@
 #ifndef __ROSCO_M68K_ZMODEM_H
 #define __ROSCO_M68K_ZMODEM_H
 
-#ifdef __cplusplus
-extern 'C' {
-#endif
-
 #include "ztypes.h"
 #include "znumbers.h"
 #include "zheaders.h"
 #include "zserial.h"
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* __ROSCO_M68K_ZMODEM_H */

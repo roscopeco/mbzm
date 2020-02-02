@@ -28,8 +28,8 @@
 #include "znumbers.h"
 #include "checksum.h"
 
-ZRESULT read_crlf() {
-  uint16_t c = recv();
+ZRESULT zm_read_crlf() {
+  uint16_t c = zm_recv();
 
   if (IS_ERROR(c)) {
     DEBUGF("CRLF: Got error on first character: 0x%04x\n", c);
@@ -39,7 +39,7 @@ ZRESULT read_crlf() {
     return OK;
   } else if (c == CR || c == (CR | 0x80)) {
     DEBUGF("CRLF: Got CR on first character, await LF\n");
-    c = recv();
+    c = zm_recv();
 
     if (IS_ERROR(c)) {
       return c;
@@ -57,26 +57,26 @@ ZRESULT read_crlf() {
   }
 }
 
-ZRESULT read_hex_byte() {
-  int c1 = recv(), c2;
+ZRESULT zm_read_hex_byte() {
+  int c1 = zm_recv(), c2;
 
   if (IS_ERROR(c1)) {
     return c1;
   } else {
-    c2 = recv();
+    c2 = zm_recv();
     if (IS_ERROR(c2)) {
       return c2;
     } else {
-      return hex_to_byte(c1, c2);
+      return zm_hex_to_byte(c1, c2);
     }
   }
 }
 
-ZRESULT read_escaped() {
+ZRESULT zm_read_escaped() {
   ZRESULT c;
 
   while (true) {
-    c = recv();
+    c = zm_recv();
 
     // Return immediately if non-control character or error
     if (NONCONTROL(c) || IS_ERROR(c)) {
@@ -94,7 +94,7 @@ ZRESULT read_escaped() {
       goto gotzdle;
     default:
       // TODO support control escaping?
-//      DEBUGF("  >> READ_ESCAPED: Got 0x%02x [%c]\n", c, c & 0xff);
+      DEBUGF("  >> READ_ESCAPED: Got 0x%02x [%c]\n", c, c & 0xff);
       return c;
     }
   }
@@ -149,13 +149,13 @@ ZRESULT read_escaped() {
    *          so is either protocol control, or an escaped character.
    *
    */
-  if (IS_ERROR(c = recv()))
+  if (IS_ERROR(c = zm_recv()))
     return c;
-  if (c == CAN && IS_ERROR(c = recv()))
+  if (c == CAN && IS_ERROR(c = zm_recv()))
     return c;
-  if (c == CAN && IS_ERROR(c = recv()))
+  if (c == CAN && IS_ERROR(c = zm_recv()))
     return c;
-  if (c == CAN && IS_ERROR(c = recv()))
+  if (c == CAN && IS_ERROR(c = zm_recv()))
     return c;
 
   switch (c) {
@@ -191,7 +191,7 @@ static ZRESULT recv_data_block(uint8_t *buf, uint16_t *len) {
   *len = 0;
 
   while (*len < max) {
-    ZRESULT c = read_escaped();
+    ZRESULT c = zm_read_escaped();
 
     if (IS_ERROR(c)) {
       DEBUGF("  >> RECV_BLOCK: GOT ERROR: 0x%04x\n", c);
@@ -209,27 +209,28 @@ static ZRESULT recv_data_block(uint8_t *buf, uint16_t *len) {
   return OUT_OF_SPACE;
 }
 
-ZRESULT read_data_block(uint8_t *buf, uint16_t *len) {
+ZRESULT zm_read_data_block(uint8_t *buf, uint16_t *len) {
   ZRESULT result = recv_data_block(buf, len);
   DEBUGF("  >> READ_BLOCK: Result of data block recv is [0x%04x] (got %d character(s))\n", result, *len);
 
   if (IS_ERROR(result)) {
     return result;
   } else {
-    uint8_t crc1 = ((uint8_t)read_escaped()) & 0xff;
+    // CRC bytes are ZDLE escaped!
+    uint8_t crc1 = ((uint8_t)zm_read_escaped()) & 0xff;
     if (IS_ERROR(crc1)) {
       DEBUGF("  >> READ_BLOCK: Error while reading crc1: 0x%04x\n", crc1);
       return crc1;
     }
 
-    uint8_t crc2 = ((uint8_t)read_escaped()) & 0xff;
+    uint8_t crc2 = ((uint8_t)zm_read_escaped()) & 0xff;
     if (IS_ERROR(crc2)) {
       return crc2;
       DEBUGF("  >> READ_BLOCK: Error while reading crc2: 0x%04x\n", crc2);
     }
 
     uint16_t recv_crc = CRC(crc1, crc2);
-    uint16_t calc_crc = calc_data_crc(buf, *len);
+    uint16_t calc_crc = zm_calc_data_crc(buf, *len);
 
     if (recv_crc == calc_crc) {
       return result;
@@ -241,13 +242,12 @@ ZRESULT read_data_block(uint8_t *buf, uint16_t *len) {
 }
 
 
-
-ZRESULT await(char *str, char *buf, int buf_size) {
+ZRESULT zm_await(char *str, char *buf, int buf_size) {
   memset(buf, 0, 4);
   int ptr = 0;
 
   while(true) {
-    int c = recv();
+    int c = zm_recv();
 
     if (IS_ERROR(c)) {
       return c;
@@ -277,9 +277,9 @@ ZRESULT await(char *str, char *buf, int buf_size) {
   }
 }
 
-ZRESULT await_zdle() {
+ZRESULT zm_await_zdle() {
   while (true) {
-    int c = recv();
+    int c = zm_recv();
 
     if (IS_ERROR(c)) {
       DEBUGF("Got error :(\n");
@@ -306,7 +306,7 @@ ZRESULT await_zdle() {
   }
 }
 
-ZRESULT read_hex_header(ZHDR *hdr) {
+ZRESULT zm_read_hex_header(ZHDR *hdr) {
   uint8_t *ptr = (uint8_t*)hdr;
   memset(hdr, 0xc0, sizeof(ZHDR));
   uint16_t crc = CRC_START_XMODEM;
@@ -315,7 +315,7 @@ ZRESULT read_hex_header(ZHDR *hdr) {
   //      the need to have the all-byte layout in ZHDR struct...
   for (int i = 0; i < ZHDR_SIZE; i++) {
     // TODO use read_hex_byte here...
-    uint16_t c1 = recv();
+    uint16_t c1 = zm_recv();
 
     if (IS_ERROR(c1)) {
       DEBUGF("READ_HEX: Character %d/1 is error: 0x%04x\n", i, c1);
@@ -325,7 +325,7 @@ ZRESULT read_hex_header(ZHDR *hdr) {
       return CLOSED;
     } else {
       DEBUGF("READ_HEX: Character %d/1 is good: 0x%02x\n", i, c1);
-      uint16_t c2 = recv();
+      uint16_t c2 = zm_recv();
 
       if (IS_ERROR(c2)) {
         DEBUGF("READ_HEX: Character %d/2 is error: 0x%04x\n", i, c2);
@@ -335,7 +335,7 @@ ZRESULT read_hex_header(ZHDR *hdr) {
         return CLOSED;
       } else {
         DEBUGF("READ_HEX: Character %d/2 is good: 0x%02x\n", i, c2);
-        uint16_t b = hex_to_byte(c1,c2);
+        uint16_t b = zm_hex_to_byte(c1,c2);
 
         if (IS_ERROR(b)) {
           DEBUGF("READ_HEX: hex_to_byte %d is error: 0x%04x\n", i, b);
@@ -361,23 +361,20 @@ ZRESULT read_hex_header(ZHDR *hdr) {
   DEBUG_DUMPHDR(hdr);
 
   DEBUGF("READ_HEX: All read; check CRC (Received: 0x%04x; Computed: 0x%04x)\n", CRC(hdr->crc1, hdr->crc2), crc);
-  return check_header_crc16(hdr, crc);
+  return zm_check_header_crc16(hdr, crc);
 }
 
-ZRESULT read_binary16_header(ZHDR *hdr) {
+ZRESULT zm_read_binary16_header(ZHDR *hdr) {
   uint8_t *ptr = (uint8_t*)hdr;
   memset(hdr, 0xc0, sizeof(ZHDR));
   uint16_t crc = CRC_START_XMODEM;
 
   for (int i = 0; i < ZHDR_SIZE; i++) {
-    uint16_t b = recv();
+    uint16_t b = zm_recv();
 
     if (IS_ERROR(b)) {
       DEBUGF("READ_BIN16: Character %d/1 is error: 0x%04x\n", i, b);
       return b;
-    } else if (IS_ERROR(b)) {
-      DEBUGF("READ_BIN16: Character %d/1 is EOF\n", i);
-      return CLOSED;
     } else {
       DEBUGF("READ_BIN16: Byte %d is good: 0x%02x\n", i, b);
       DEBUGF("Byte %d; hdr at 0x%0lx; ptr at 0x%0lx\n", i, (uint64_t)hdr, (uint64_t)ptr);
@@ -397,31 +394,31 @@ ZRESULT read_binary16_header(ZHDR *hdr) {
   DEBUG_DUMPHDR(hdr);
 
   DEBUGF("READ_BIN16: All read; check CRC (Received: 0x%04x; Computed: 0x%04x)\n", CRC(hdr->crc1, hdr->crc2), crc);
-  return check_header_crc16(hdr, crc);
+  return zm_check_header_crc16(hdr, crc);
 }
 
-ZRESULT await_header(ZHDR *hdr) {
+ZRESULT zm_await_header(ZHDR *hdr) {
   uint16_t result;
 
-  if (await_zdle() == OK) {
+  if (zm_await_zdle() == OK) {
     DEBUGF("Got ZDLE, awaiting type...\n");
-    char frame_type = recv();
+    char frame_type = zm_recv();
 
     switch (frame_type) {
     case ZHEX:
       DEBUGF("Reading HEX header\n");
-      result = read_hex_header(hdr);
+      result = zm_read_hex_header(hdr);
 
       if (result == OK) {
         DEBUGF("Got valid header :)\n");
-        return read_crlf();
+        return zm_read_crlf();
       } else {
         DEBUGF("Didn't get valid header...\n");
         return result;
       }
     case ZBIN16:
       DEBUGF("Reading BIN16 header\n");
-      result = read_binary16_header(hdr);
+      result = zm_read_binary16_header(hdr);
 
       if (result == OK) {
         DEBUGF("Got valid header :)\n");
@@ -442,11 +439,11 @@ ZRESULT await_header(ZHDR *hdr) {
   }
 }
 
-ZRESULT send_sz(uint8_t *data) {
+ZRESULT zm_send_sz(uint8_t *data) {
   register uint16_t result;
 
   while (*data) {
-    result = send(*data++);
+    result = zm_send(*data++);
 
     if (IS_ERROR(result)) {
       return result;
@@ -456,3 +453,10 @@ ZRESULT send_sz(uint8_t *data) {
   return OK;
 }
 
+ZRESULT zm_send_hex_hdr(uint8_t *buf) {
+  zm_send(ZPAD);
+  zm_send(ZPAD);
+  zm_send(ZDLE);
+
+  return zm_send_sz(buf);
+}

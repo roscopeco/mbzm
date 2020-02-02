@@ -20,7 +20,7 @@
 #include "ztypes.h"
 #include "znumbers.h"
 
-ZRESULT hex_to_nybble(char c1) {
+ZRESULT zm_hex_to_nybble(char c1) {
   switch (c1) {
   case '0':
     return 0x00;
@@ -59,7 +59,7 @@ ZRESULT hex_to_nybble(char c1) {
   }
 }
 
-ZRESULT nybble_to_hex(uint8_t nybble) {
+ZRESULT zm_nybble_to_hex(uint8_t nybble) {
   switch (nybble) {
   case 0x0:
     return '0';
@@ -98,13 +98,13 @@ ZRESULT nybble_to_hex(uint8_t nybble) {
   }
 }
 
-ZRESULT byte_to_hex(uint8_t byte, uint8_t *buf) {
-  uint16_t h1 = nybble_to_hex(BMSN(byte));
+ZRESULT zm_byte_to_hex(uint8_t byte, uint8_t *buf) {
+  uint16_t h1 = zm_nybble_to_hex(BMSN(byte));
 
   if (IS_ERROR(h1)) {
     return h1;
   } else {
-    uint16_t h2 = nybble_to_hex(BLSN(byte));
+    uint16_t h2 = zm_nybble_to_hex(BLSN(byte));
 
     if (IS_ERROR(h2)) {
       return h2;
@@ -117,11 +117,11 @@ ZRESULT byte_to_hex(uint8_t byte, uint8_t *buf) {
   }
 }
 
-ZRESULT hex_to_byte(unsigned char c1, unsigned char c2) {
+ZRESULT zm_hex_to_byte(unsigned char c1, unsigned char c2) {
   uint16_t n1,n2;
 
-  n1 = hex_to_nybble(c1);
-  n2 = hex_to_nybble(c2);
+  n1 = zm_hex_to_nybble(c1);
+  n2 = zm_hex_to_nybble(c2);
 
   if (n1 == BAD_DIGIT || n2 == BAD_DIGIT) {
     DEBUGF("Got bad digit: [0x%02x, 0x%02x]\n", c1, c2);
