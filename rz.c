@@ -22,6 +22,7 @@
 #include "rzinit.c"
 
 static FILE *com;
+static FILE *out;
 
 ZRESULT recv() {
   register int result = fgetc(com);
@@ -155,6 +156,12 @@ int main() {
             if (!IS_ERROR(result)) {
               PRINTF("Receiving file: '%s'\n", data_buf);
 
+              out = fopen((char*)data_buf, "wb");
+              if (out == NULL) {
+                FPRINTF(stderr, "Error opening file for output; Bailing...\n");
+                goto cleanup;
+              }
+
               result = send_sz_hex_hdr(zrpos_buf);
 
               if (result == OK) {
@@ -178,6 +185,12 @@ int main() {
               DEBUGF("Result of data block read is [0x%04x] (got %d character(s))\n", result, count);
 
               received_data_size += (count - 1);
+              if (out != NULL) {
+                fwrite(data_buf, count - 1, 1, out);
+              } else {
+                FPRINTF(stderr, "Received data before open file; Bailing...\n");
+                goto cleanup;
+              }
 
               if (!IS_ERROR(result)) {
                 DEBUGF("Received %d byte(s) of data\n", count);
@@ -256,11 +269,11 @@ int main() {
 
     cleanup:
     
-    if (fclose(com)) {
-      PRINTF("Failed to close file\n");
-      return 1;
-    } else {
-      return 0;
+    if (out != NULL && fclose(out)) {
+      FPRINTF(stderr, "Failed to close output file\n");
+    }
+    if (com != NULL && fclose(com)) {
+      FPRINTF(stderr, "Failed to close serial port\n");
     }
 
   } else {
