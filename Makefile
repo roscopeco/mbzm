@@ -12,7 +12,7 @@ OBJFILES=zheaders.o znumbers.o zserial.o crcccitt.o crc32.o
 all: rz test cpptest
 
 %.o: %.c
-	$(CC) $(CFLAGS) -DZEMBEDDED -c -o $@ $<
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 %.o: %.cpp
 	$(CCP) $(CPPFLAGS) -c -o $@ $<
