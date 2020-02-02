@@ -36,6 +36,6 @@ int main() {
   if (result == HEX_HDR_STR_LEN) {
     std::cout << "Struct initialized: " << buffer << std::endl;
   } else {
-    std::cerr << "Something went wrong; " << result;
+    std::cerr << "Something went wrong; " << result << std::endl;
   }
 }
