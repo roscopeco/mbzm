@@ -28,27 +28,27 @@
 #include "znumbers.h"
 #include "checksum.h"
 
-ZRESULT read_crlf() {
-  uint16_t c = recv();
+ZRESULT zm_read_crlf() {
+  uint16_t c = zm_recv();
 
   if (IS_ERROR(c)) {
     DEBUGF("CRLF: Got error on first character: 0x%04x\n", c);
     return c;
   } else if (c == LF || c == (LF | 0x80)) {
-    DEBUGF("CRLF: Got LF on first character: OK\n");
+    TRACEF("CRLF: Got LF on first character: OK\n");
     return OK;
   } else if (c == CR || c == (CR | 0x80)) {
-    DEBUGF("CRLF: Got CR on first character, await LF\n");
-    c = recv();
+    TRACEF("CRLF: Got CR on first character, await LF\n");
+    c = zm_recv();
 
     if (IS_ERROR(c)) {
       return c;
       DEBUGF("CRLF: Got error on second character: 0x%04x\n", c);
     } else if (c == LF || c == (LF | 0x80)) {
-      DEBUGF("CRLF: Got LF on second character: OK\n");
+      TRACEF("CRLF: Got LF on second character: OK\n");
       return OK;
     } else {
-      DEBUGF("CRLF: Got corruption on second character: 0x%04x\n", c);
+      TRACEF("CRLF: Got corruption on second character: 0x%04x\n", c);
       return CORRUPTED;
     }
   } else {
@@ -57,27 +57,197 @@ ZRESULT read_crlf() {
   }
 }
 
-ZRESULT read_hex_byte() {
-  int c1 = recv(), c2;
+ZRESULT zm_read_hex_byte() {
+  int c1 = zm_recv(), c2;
 
   if (IS_ERROR(c1)) {
     return c1;
   } else {
-    c2 = recv();
+    c2 = zm_recv();
     if (IS_ERROR(c2)) {
       return c2;
     } else {
-      return hex_to_byte(c1, c2);
+      return zm_hex_to_byte(c1, c2);
     }
   }
 }
 
-ZRESULT await(char *str, char *buf, int buf_size) {
+ZRESULT zm_read_escaped() {
+  ZRESULT c;
+
+  while (true) {
+    c = zm_recv();
+
+    // Return immediately if non-control character or error
+    if (NONCONTROL(c) || IS_ERROR(c)) {
+      return c;
+    }
+
+    switch (c) {
+    case XON:
+    case XON | 0x80:
+    case XOFF:
+    case XOFF | 0x80:
+      continue;
+    case ZDLE:
+      TRACEF("  >> READ_ESCAPED: Got ZDLE\n");
+      goto gotzdle;
+    default:
+      // TODO support control escaping?
+      TRACEF("  >> READ_ESCAPED: Got 0x%02x [%c]\n", c, c & 0xff);
+      return c;
+    }
+  }
+
+  gotzdle:
+
+  /* Picked up this trick from the original ZM implementation. Took me a few
+   * minutes to figure it out, so here's what's going on.
+   *
+   * At the begining, c is **definitely** ZDLE (a.k.a. CAN, important to note that
+   * they're the same!) so we can say we've already received exactly one CAN before
+   * we enter this section.
+   *
+   * (We know this because the condition for entering this section was that we
+   * received that ZDLE (a.k.a. CAN), and anything other than ZDLE was just
+   * returned, give or take some swallowing of software flow control characters).
+   *
+   * 1. The first 'if' reads the next character, and immediately returns on error.
+   *    If no error, c is set to the next character.
+   *
+   * 2. We check the character read in 1. If it **was** CAN (making two CANs so far):
+   *        * Read the next character into c, immediately return on error.
+   *
+   *    If it **wasn't** CAN, this step does nothing (i.e. nothing is read), and
+   *    (crucially) the rest of these steps will be skipped too, since c never changes.
+   *    **This part is important**.
+   *
+   * 3. We check the character read in 2. If it was CAN (making three CANs so far):
+   *        * Read the next character into c, immediately return on error.
+   *
+   *    This is the clever part - if the character in read in 1 **was not** CAN,
+   *    then no character will have been read in step 2. So we're checking the
+   *    character read in 1 again, and it still cannot be CAN so again we won't read
+   *    another character.
+   *
+   *    Furthermore, if the character read in 1 **was** CAN, but the character read
+   *    in step 2 **was not** CAN, then we won't see CAN in this step, or in any of
+   *    the following steps, and they'll all be skipped.
+   *
+   * 4. We check the character read in 3. If it was CAN (making four CANs so far):
+   *        * Read the next character into c, immediately return on error.
+   *
+   *    Again, if the character we read in any of the preceeding steps **was not** CAN,
+   *    then c still hasn't changed because we haven't read any more characters.
+   *
+   * 5. Now, we enter the switch. At this point, we know the following to be true:
+   *
+   *        * If c is CAN, we have **definitely** seen five CANs, indicating
+   *          the other end wants to cancel the transfer, **or**
+   *
+   *        * c is definitely **not** CAN, but WAS preceeded by exactly one ZDLE,
+   *          so is either protocol control, or an escaped character.
+   *
+   */
+  if (IS_ERROR(c = zm_recv()))
+    return c;
+  if (c == CAN && IS_ERROR(c = zm_recv()))
+    return c;
+  if (c == CAN && IS_ERROR(c = zm_recv()))
+    return c;
+  if (c == CAN && IS_ERROR(c = zm_recv()))
+    return c;
+
+  switch (c) {
+  case CAN:
+    DEBUGF("  >> READ_ESCAPED: Got five CANs!\n");
+    return CANCELLED;
+  case ZCRCE:
+    DEBUGF("  >> READ_ESCAPED: Got ZCRCE\n");
+    return GOT_CRCE;
+  case ZCRCG:
+    DEBUGF("  >> READ_ESCAPED: Got ZCRCG\n");
+    return GOT_CRCG;
+  case ZCRCQ:
+    DEBUGF("  >> READ_ESCAPED: Got ZCRCQ\n");
+    return GOT_CRCQ;
+  case ZCRCW:
+    DEBUGF("  >> READ_ESCAPED: Got ZCRCW\n");
+    return GOT_CRCW;
+  default:
+    if ((c & 0x60) == 0x40) {
+      TRACEF("  >> READ_ESCAPED: Got escaped character: 0x%02x\n", (c ^ 0x40));
+      return c ^ 0x40;
+    }
+  }
+
+  DEBUGF("  >> READ_ESCAPED: Got bad control character 0x%02x", (c & 0xff));
+  return BAD_ESCAPE;
+}
+
+/* Just read a data block - no CRC checking is done; see read_data_block */
+static ZRESULT recv_data_block(uint8_t *buf, uint16_t *len) {
+  uint16_t max = *len;
+  *len = 0;
+
+  while (*len < max) {
+    ZRESULT c = zm_read_escaped();
+
+    if (IS_ERROR(c)) {
+      DEBUGF("  >> RECV_BLOCK: GOT ERROR: 0x%04x\n", c);
+      return c;
+    } else {
+      // Always add, even if frameend, as CRC takes that into account...
+      buf[(*len)++] = ZVALUE(c);
+
+      if (IS_FIN(c)) {
+        return c;
+      }
+    }
+  }
+
+  return OUT_OF_SPACE;
+}
+
+ZRESULT zm_read_data_block(uint8_t *buf, uint16_t *len) {
+  ZRESULT result = recv_data_block(buf, len);
+  DEBUGF("  >> READ_BLOCK: Result of data block recv is [0x%04x] (got %d character(s))\n", result, *len);
+
+  if (IS_ERROR(result)) {
+    return result;
+  } else {
+    // CRC bytes are ZDLE escaped!
+    uint8_t crc1 = ((uint8_t)zm_read_escaped()) & 0xff;
+    if (IS_ERROR(crc1)) {
+      DEBUGF("  >> READ_BLOCK: Error while reading crc1: 0x%04x\n", crc1);
+      return crc1;
+    }
+
+    uint8_t crc2 = ((uint8_t)zm_read_escaped()) & 0xff;
+    if (IS_ERROR(crc2)) {
+      return crc2;
+      DEBUGF("  >> READ_BLOCK: Error while reading crc2: 0x%04x\n", crc2);
+    }
+
+    uint16_t recv_crc = CRC(crc1, crc2);
+    uint16_t calc_crc = zm_calc_data_crc(buf, *len);
+
+    if (recv_crc == calc_crc) {
+      return result;
+    } else {
+      DEBUGF("  >> READ_BLOCK: CRC is borked (recv: 0x%04x; calc: 0x%04x)\n", recv_crc, calc_crc);
+      return BAD_CRC;
+    }
+  }
+}
+
+
+ZRESULT zm_await(char *str, char *buf, int buf_size) {
   memset(buf, 0, 4);
   int ptr = 0;
 
   while(true) {
-    int c = recv();
+    int c = zm_recv();
 
     if (IS_ERROR(c)) {
       return c;
@@ -92,24 +262,26 @@ ZRESULT await(char *str, char *buf, int buf_size) {
         buf[ptr++] = c;
       }
 
-      DEBUGF("Buf is [");
+#ifdef ZTRACE
+      TRACEF("Buf is [");
       for (int i = 0; i < buf_size; i++) {
-        DEBUGF("%02x ", buf[i]);
+        TRACEF("%02x ", buf[i]);
       }
-      DEBUGF("]\n");
+      TRACEF("]\n");
+#endif
 
       // TODO if we don't use strcmp, we don't need buf to be one char longer...
       if (strcmp(str, buf) == 0) {
-        DEBUGF("Target received; Await completed...\n");
+        DEBUGF("AWAIT: Target received; Await completed...\n");
         return OK;
       }
     }
   }
 }
 
-ZRESULT await_zdle() {
+ZRESULT zm_await_zdle() {
   while (true) {
-    int c = recv();
+    int c = zm_recv();
 
     if (IS_ERROR(c)) {
       DEBUGF("Got error :(\n");
@@ -118,20 +290,27 @@ ZRESULT await_zdle() {
       switch (c) {
       case ZPAD:
       case ZPAD | 0200:
-        DEBUGF("Got ZPAD...\n");
+        TRACEF("Got ZPAD...\n");
         continue;
       case ZDLE:
-        DEBUGF("Got ZDLE\n");
+        TRACEF("Got ZDLE\n");
         return OK;
       default:
-        DEBUGF("Got unknown (%08x)\n", c);
+#ifdef ZDEBUG
+        DEBUGF("Got unknown (%08x)", c);
+        if (NONCONTROL(c)) {
+          DEBUGF(" [%c]\n", c);
+        } else {
+          DEBUGF("\n");
+        }
+#endif
         continue;
       }
     }
   }
 }
 
-ZRESULT read_hex_header(ZHDR *hdr) {
+ZRESULT zm_read_hex_header(ZHDR *hdr) {
   uint8_t *ptr = (uint8_t*)hdr;
   memset(hdr, 0xc0, sizeof(ZHDR));
   uint16_t crc = CRC_START_XMODEM;
@@ -140,44 +319,44 @@ ZRESULT read_hex_header(ZHDR *hdr) {
   //      the need to have the all-byte layout in ZHDR struct...
   for (int i = 0; i < ZHDR_SIZE; i++) {
     // TODO use read_hex_byte here...
-    uint16_t c1 = recv();
+    uint16_t c1 = zm_recv();
 
     if (IS_ERROR(c1)) {
       DEBUGF("READ_HEX: Character %d/1 is error: 0x%04x\n", i, c1);
       return c1;
     } else if (IS_ERROR(c1)) {
       DEBUGF("READ_HEX: Character %d/1 is EOF\n", i);
-      return GOT_EOF;
+      return CLOSED;
     } else {
-      DEBUGF("READ_HEX: Character %d/1 is good: 0x%02x\n", i, c1);
-      uint16_t c2 = recv();
+      TRACEF("READ_HEX: Character %d/1 is good: 0x%02x\n", i, c1);
+      uint16_t c2 = zm_recv();
 
       if (IS_ERROR(c2)) {
         DEBUGF("READ_HEX: Character %d/2 is error: 0x%04x\n", i, c2);
         return c2;
       } else if (IS_ERROR(c2)) {
         DEBUGF("READ_HEX: Character %d/2 is EOF\n", i);
-        return GOT_EOF;
+        return CLOSED;
       } else {
-        DEBUGF("READ_HEX: Character %d/2 is good: 0x%02x\n", i, c2);
-        uint16_t b = hex_to_byte(c1,c2);
+        TRACEF("READ_HEX: Character %d/2 is good: 0x%02x\n", i, c2);
+        uint16_t b = zm_hex_to_byte(c1,c2);
 
         if (IS_ERROR(b)) {
           DEBUGF("READ_HEX: hex_to_byte %d is error: 0x%04x\n", i, b);
           return b;
         } else {
-          DEBUGF("READ_HEX: Byte %d is good: 0x%02x\n", i, b);
-          DEBUGF("Byte %d; hdr at 0x%0lx; ptr at 0x%0lx\n", i, (uint64_t)hdr, (uint64_t)ptr);
+          TRACEF("READ_HEX: Byte %d is good: 0x%02x\n", i, b);
+          TRACEF("Byte %d; hdr at 0x%0lx; ptr at 0x%0lx\n", i, (uint64_t)hdr, (uint64_t)ptr);
           *ptr++ = (uint8_t)b;
 
           if (i < ZHDR_SIZE - 2) {
-            DEBUGF("Will update CRC for byte %d\n", i);
+            TRACEF("Will update CRC for byte %d\n", i);
             crc = update_crc_ccitt(crc, b);
           } else {
-            DEBUGF("Won't update CRC for byte %d\n", i);
+            TRACEF("Won't update CRC for byte %d\n", i);
           }
 
-          DEBUGF("READ_HEX: CRC after byte %d is 0x%04x\n", i, crc);
+          TRACEF("READ_HEX: CRC after byte %d is 0x%04x\n", i, crc);
         }
       }
     }
@@ -186,33 +365,30 @@ ZRESULT read_hex_header(ZHDR *hdr) {
   DEBUG_DUMPHDR(hdr);
 
   DEBUGF("READ_HEX: All read; check CRC (Received: 0x%04x; Computed: 0x%04x)\n", CRC(hdr->crc1, hdr->crc2), crc);
-  return check_header_crc16(hdr, crc);
+  return zm_check_header_crc16(hdr, crc);
 }
 
-ZRESULT read_binary16_header(ZHDR *hdr) {
+ZRESULT zm_read_binary16_header(ZHDR *hdr) {
   uint8_t *ptr = (uint8_t*)hdr;
   memset(hdr, 0xc0, sizeof(ZHDR));
   uint16_t crc = CRC_START_XMODEM;
 
   for (int i = 0; i < ZHDR_SIZE; i++) {
-    uint16_t b = recv();
+    uint16_t b = zm_recv();
 
     if (IS_ERROR(b)) {
       DEBUGF("READ_BIN16: Character %d/1 is error: 0x%04x\n", i, b);
       return b;
-    } else if (IS_ERROR(b)) {
-      DEBUGF("READ_BIN16: Character %d/1 is EOF\n", i);
-      return GOT_EOF;
     } else {
-      DEBUGF("READ_BIN16: Byte %d is good: 0x%02x\n", i, b);
-      DEBUGF("Byte %d; hdr at 0x%0lx; ptr at 0x%0lx\n", i, (uint64_t)hdr, (uint64_t)ptr);
+      TRACEF("READ_BIN16: Byte %d is good: 0x%02x\n", i, b);
+      TRACEF("Byte %d; hdr at 0x%0lx; ptr at 0x%0lx\n", i, (uint64_t)hdr, (uint64_t)ptr);
       *ptr++ = (uint8_t)b;
 
       if (i < ZHDR_SIZE - 2) {
-        DEBUGF("Will update CRC for byte %d\n", i);
+        TRACEF("Will update CRC for byte %d\n", i);
         crc = update_crc_ccitt(crc, b);
       } else {
-        DEBUGF("Won't update CRC for byte %d\n", i);
+        TRACEF("Won't update CRC for byte %d\n", i);
       }
 
       DEBUGF("READ_BIN16: CRC after byte %d is 0x%04x\n", i, crc);
@@ -222,37 +398,37 @@ ZRESULT read_binary16_header(ZHDR *hdr) {
   DEBUG_DUMPHDR(hdr);
 
   DEBUGF("READ_BIN16: All read; check CRC (Received: 0x%04x; Computed: 0x%04x)\n", CRC(hdr->crc1, hdr->crc2), crc);
-  return check_header_crc16(hdr, crc);
+  return zm_check_header_crc16(hdr, crc);
 }
 
-ZRESULT await_header(ZHDR *hdr) {
+ZRESULT zm_await_header(ZHDR *hdr) {
   uint16_t result;
 
-  if (await_zdle() == OK) {
+  if (zm_await_zdle() == OK) {
     DEBUGF("Got ZDLE, awaiting type...\n");
-    char frame_type = recv();
+    char frame_type = zm_recv();
 
     switch (frame_type) {
     case ZHEX:
       DEBUGF("Reading HEX header\n");
-      result = read_hex_header(hdr);
+      result = zm_read_hex_header(hdr);
 
       if (result == OK) {
-        DEBUGF("Got valid header :)\n");
-        return read_crlf();
+        DEBUGF("Got valid header\n");
+        return zm_read_crlf();
       } else {
-        DEBUGF("Didn't get valid header...\n");
+        DEBUGF("Didn't get valid header [0x%02x]\n", result);
         return result;
       }
     case ZBIN16:
       DEBUGF("Reading BIN16 header\n");
-      result = read_binary16_header(hdr);
+      result = zm_read_binary16_header(hdr);
 
       if (result == OK) {
-        DEBUGF("Got valid header :)\n");
+        DEBUGF("Got valid header\n");
         return OK;
       } else {
-        DEBUGF("Didn't get valid header...\n");
+        DEBUGF("Didn't get valid header [0x%02x]\n", result);
         return result;
       }
     case ZBIN32:
@@ -263,15 +439,15 @@ ZRESULT await_header(ZHDR *hdr) {
       return BAD_FRAME_TYPE;
     }
   } else {
-    return GOT_EOF;
+    return CLOSED;
   }
 }
 
-ZRESULT send_sz(uint8_t *data) {
+ZRESULT zm_send_sz(uint8_t *data) {
   register uint16_t result;
 
   while (*data) {
-    result = send(*data++);
+    result = zm_send(*data++);
 
     if (IS_ERROR(result)) {
       return result;
@@ -281,3 +457,10 @@ ZRESULT send_sz(uint8_t *data) {
   return OK;
 }
 
+ZRESULT zm_send_hex_hdr(uint8_t *buf) {
+  zm_send(ZPAD);
+  zm_send(ZPAD);
+  zm_send(ZDLE);
+
+  return zm_send_sz(buf);
+}

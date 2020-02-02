@@ -1,11 +1,11 @@
 # mbzm - eMBedded ZModem or something...
 
-A small, simple, modern(!) and incomplete Zmodem implementation, for use in resource-constrained 
+A small, simple, modern(ish) and incomplete ZMODEM implementation, for use in resource-constrained 
 environments, or wherever you can find a use for it really.
 
 ## Zmodem? Really??
 
-Yes, I am aware that it is the twenty-first century, and Zmodem is hardly the state of the art.
+Yes, I am aware that it is the twenty-first century, and ZMODEM is hardly the state of the art.
 I wrote this for two reasons:
 
 * I wanted a fun, period-appropriate protocol I could use to load 
@@ -14,7 +14,7 @@ having to pull the ROM chips for each iteration.
 
 * I haven't implemented Zmodem before and wanted to explore how it worked.
 
-As far as possible, I avoided referring to other Zmodem implementations and just tried to
+As far as possible, I avoided referring to other ZMODEM implementations and just tried to
 implement this using the spec (http://pauillac.inria.fr/~doligez/zmodem/zmodem.txt).
 The spec is a bit vague on certain things so I spent quite a bit of time reading old
 usenet and forum posts, experimenting, and occasionally peeking at the original `zm.c`
@@ -26,21 +26,31 @@ Right now, this is very limited. For one thing, it can only receive. Expanding i
 sending probably wouldn't be all that much work, but I don't need it right now so I haven't
 done it. Other notable things:
 
-* It doesn't do any dynamic memory allocation, so it can be used where malloc is unavailable.
-* It's sort-of optimised for use in 16/32-bit environments (I wrote it with M68010 as the primary target) 
+* It doesn't do any memory allocation, so it can be used where malloc is unavailable.
+* It's _sort-of_ optimised for use in 16/32-bit environments (I wrote it with M68010 as the primary target)
+* It doesn't support XON/XOFF flow control (it does enough that it _might_ work with it, but it's not tested
+  and it certainly won't shut up when XOFF tells it to!).
+* It doesn't support 32-bit headers (work in progress - CRC32 _is_ supported, just not the headers yet).
+* It doesn't support **any** of the advanced features of the protocol (compression etc)
+
+Additionally, the included sample has even more limitations, such as:
+
+* It ignores most of the file information in block 0 (it only takes notice of the filename, not the size, mode, etc)
+* Related to the above, it doesn't have any support for rejecting files that are too large! 
 * It doesn't support the (optional) ZSINIT frame and will just ignore it
-* It doesn't support **any** of the advanced features of the protocol (compression etc).
 * It doesn't support resume
-* It doesn't work with XON/XOFF flow control
 * It has a ton of other limitations I'm too lazy to list right now...
 * ... but it does work for the simple case of receiving data with error correction.
+
+Note that this last set aren't limitations of the library _per se_ - it's more that they 
+aren't provided by the library, and the example program doesn't implement them either.
 
 ## Usage
 
 ### Tests
 
 There are some unit tests included. They don't cover everything, but they're a start, and
-a definite improvement over the other 30-year-old code out there.
+are likely an improvement over some of the other 30+-year-old code out there.
 
 `make test`
 
@@ -49,6 +59,12 @@ a definite improvement over the other 30-year-old code out there.
 A sample application is included that will receive a file. You can use `sz` or `minicom` or
 something to send a file, probably using `socat` or similar to set up a virtual link.
 
+E.g. start socat:
+
+`socat -d -d pty,raw,echo=0 pty,raw,echo=0`
+
+You'll probably need to change the source to open the correct device.
+
 To build the application, just do:
 
 `make`
@@ -56,6 +72,10 @@ To build the application, just do:
 and then run it:
 
 `./rz`
+
+Now you can use e.g. `sz` to send a file to it:
+
+`sz /path/to/somefile > /dev/pts/1 < /dev/pts/1`
 
 
 ### Use as a library
@@ -68,7 +88,7 @@ uint16_t send(uint8_t chr);
 ```
 
 These should return one of the codes used in the rest of the library
-to indicate an error if one occurs. 
+to indicate an error if one occurs (see `ztypes.h` for error codes). 
 
 If there isn't a problem, `recv` should return the next byte from the serial
 link. `send` should return `OK`.
@@ -84,8 +104,27 @@ build the objects for m68k, and you have a cross-compiler, you can do:
 I use this mostly for testing that changes will still build using my cross
 toolchain - it probably isn't actually useful for anything... 
 
+When cross-compiling, especially for a freestanding environment, you might want
+to define `ZEMBEDDED` as this will stop the library pulling in any stdlib
+dependencies. In this case, you're expected to provide two functions:
+
+* `memset` (I might provide a naive default implementation of this later)
+* `strcmp` (this will go away in future)
+
+### Debug/Trace Output
+
+If you define `ZDEBUG` and/or `ZTRACE` when compiling, you can get
+a **lot** of output from the library as things happen. This can be useful
+if things aren't going your way, but they do require a `printf`. 
+
+If you don't have a `printf` but have something similar, edit the
+defines at the bottom of `ztypes.c` to suit.
+
 ## Shoutouts
 
 The CRC calculation code comes from the excellent **libcrc** library
 (https://github.com/lammertb/libcrc), because that code works well and
 I have zero interest in calculating CRCs myself.
+
+And obviously much respect to the late Chuck Fosberg, without whom 
+there would be no protocol to implement.
