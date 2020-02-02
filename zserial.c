@@ -73,8 +73,10 @@ ZRESULT read_hex_byte() {
 }
 
 ZRESULT read_escaped() {
+  ZRESULT c;
+
   while (true) {
-    ZRESULT c = recv();
+    c = recv();
 
     // Return immediately if non-control character or error
     if (NONCONTROL(c) || IS_ERROR(c)) {
@@ -82,11 +84,163 @@ ZRESULT read_escaped() {
     }
 
     switch (c) {
+    case XON:
+    case XON | 0x80:
+    case XOFF:
+    case XOFF | 0x80:
+      continue;
+    case ZDLE:
+      DEBUGF("  >> READ_ESCAPED: Got ZDLE\n");
+      goto gotzdle;
+    default:
+      // TODO support control escaping?
+      DEBUGF("  >> READ_ESCAPED: Got 0x%02x [%c]\n", c, c & 0xff);
+      return c;
+    }
+  }
 
+  gotzdle:
 
+  /* Picked up this trick from the original ZM implementation. Took me a few
+   * minutes to figure it out, so here's what's going on.
+   *
+   * At the begining, c is **definitely** ZDLE (a.k.a. CAN, important to note that
+   * they're the same!) so we can say we've already received exactly one CAN before
+   * we enter this section.
+   *
+   * (We know this because the condition for entering this section was that we
+   * received that ZDLE (a.k.a. CAN), and anything other than ZDLE was just
+   * returned, give or take some swallowing of software flow control characters).
+   *
+   * 1. The first 'if' reads the next character, and immediately returns on error.
+   *    If no error, c is set to the next character.
+   *
+   * 2. We check the character read in 1. If it **was** CAN (making two CANs so far):
+   *        * Read the next character into c, immediately return on error.
+   *
+   *    If it **wasn't** CAN, this step does nothing (i.e. nothing is read), and
+   *    (crucially) the rest of these steps will be skipped too, since c never changes.
+   *    **This part is important**.
+   *
+   * 3. We check the character read in 2. If it was CAN (making three CANs so far):
+   *        * Read the next character into c, immediately return on error.
+   *
+   *    This is the clever part - if the character in read in 1 **was not** CAN,
+   *    then no character will have been read in step 2. So we're checking the
+   *    character read in 1 again, and it still cannot be CAN so again we won't read
+   *    another character.
+   *
+   *    Furthermore, if the character read in 1 **was** CAN, but the character read
+   *    in step 2 **was not** CAN, then we won't see CAN in this step, or in any of
+   *    the following steps, and they'll all be skipped.
+   *
+   * 4. We check the character read in 3. If it was CAN (making four CANs so far):
+   *        * Read the next character into c, immediately return on error.
+   *
+   *    Again, if the character we read in any of the preceeding steps **was not** CAN,
+   *    then c still hasn't changed because we haven't read any more characters.
+   *
+   * 5. Now, we enter the switch. At this point, we know the following to be true:
+   *
+   *        * If c is CAN, we have **definitely** seen five CANs, indicating
+   *          the other end wants to cancel the transfer, **or**
+   *
+   *        * c is definitely **not** CAN, but WAS preceeded by exactly one ZDLE,
+   *          so is either protocol control, or an escaped character.
+   *
+   */
+  if (IS_ERROR(c = recv()))
+    return c;
+  if (c == CAN && IS_ERROR(c = recv()))
+    return c;
+  if (c == CAN && IS_ERROR(c = recv()))
+    return c;
+  if (c == CAN && IS_ERROR(c = recv()))
+    return c;
+
+  switch (c) {
+  case CAN:
+    DEBUGF("  >> READ_ESCAPED: Got five CANs!\n");
+    return CANCELLED;
+  case ZCRCE:
+    DEBUGF("  >> READ_ESCAPED: Got ZCRCE\n");
+    return GOT_CRCE;
+  case ZCRCG:
+    DEBUGF("  >> READ_ESCAPED: Got ZCRCG\n");
+    return GOT_CRCG;
+  case ZCRCQ:
+    DEBUGF("  >> READ_ESCAPED: Got ZCRCQ\n");
+    return GOT_CRCQ;
+  case ZCRCW:
+    DEBUGF("  >> READ_ESCAPED: Got ZCRCW\n");
+    return GOT_CRCW;
+  default:
+    if ((c & 0x60) == 0x40) {
+      DEBUGF("  >> READ_ESCAPED: Got escaped character: 0x%02x\n", (c ^ 0x40));
+      return c ^ 0x40;
+    }
+  }
+
+  DEBUGF("  >> READ_ESCAPED: Got bad control character 0x%02x", (c & 0xff));
+  return BAD_ESCAPE;
+}
+
+/* Just read a data block - no CRC checking is done; see read_data_block */
+static ZRESULT recv_data_block(uint8_t *buf, uint16_t *len) {
+  uint16_t max = *len;
+  *len = 0;
+
+  while (*len < max) {
+    ZRESULT c = read_escaped();
+
+    if (IS_ERROR(c)) {
+      DEBUGF("  >> RECV_BLOCK: GOT ERROR: 0x%04x\n", c);
+      return c;
+    } else {
+      // Always add, even if frameend, as CRC takes that into account...
+      buf[(*len)++] = ZVALUE(c);
+
+      if (IS_FIN(c)) {
+        return c;
+      }
+    }
+  }
+
+  return OUT_OF_SPACE;
+}
+
+ZRESULT read_data_block(uint8_t *buf, uint16_t *len) {
+  ZRESULT result = recv_data_block(buf, len);
+  DEBUGF("  >> READ_BLOCK: Result of data block recv is [0x%04x] (got %d character(s))\n", result, *len);
+
+  if (IS_ERROR(result)) {
+    return result;
+  } else {
+    uint8_t crc1 = ((uint8_t)read_escaped()) & 0xff;
+    if (IS_ERROR(crc1)) {
+      DEBUGF("  >> READ_BLOCK: Error while reading crc1: 0x%04x\n", crc1);
+      return crc1;
+    }
+
+    uint8_t crc2 = ((uint8_t)read_escaped()) & 0xff;
+    if (IS_ERROR(crc2)) {
+      return crc2;
+      DEBUGF("  >> READ_BLOCK: Error while reading crc2: 0x%04x\n", crc2);
+    }
+
+    uint16_t recv_crc = CRC(crc1, crc2);
+    uint16_t calc_crc = calc_data_crc(buf, *len);
+
+    if (recv_crc == calc_crc) {
+      return result;
+    } else {
+      DEBUGF("  >> READ_BLOCK: CRC is borked (recv: 0x%04x; calc: 0x%04x)\n", recv_crc, calc_crc);
+      return BAD_CRC;
     }
   }
 }
+
+
 
 ZRESULT await(char *str, char *buf, int buf_size) {
   memset(buf, 0, 4);
@@ -140,7 +294,12 @@ ZRESULT await_zdle() {
         DEBUGF("Got ZDLE\n");
         return OK;
       default:
-        DEBUGF("Got unknown (%08x)\n", c);
+        DEBUGF("Got unknown (%08x)", c);
+        if (NONCONTROL(c)) {
+          DEBUGF(" [%c]\n", c);
+        } else {
+          DEBUGF("\n");
+        }
         continue;
       }
     }

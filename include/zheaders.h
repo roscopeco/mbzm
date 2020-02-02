@@ -29,6 +29,9 @@ extern 'C' {
  */
 void calc_hdr_crc(ZHDR *hdr);
 
+uint16_t calc_data_crc(uint8_t *buf, uint16_t len);
+uint32_t calc_data_crc32(uint8_t *buf, uint16_t len);
+
 /*
  * Converts ZHDR to wire-format hex header. Expects CRC is already
  * computed. Result placed in the supplied buffer.

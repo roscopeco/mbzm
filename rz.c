@@ -19,6 +19,9 @@
 #include <string.h>
 #include "zmodem.h"
 
+// Spec says a data packet is max 1024 bytes, but add some headroom...
+#define DATA_BUF_LEN    2048
+
 static FILE *com;
 
 static ZHDR hdr_zrinit = {
@@ -63,10 +66,32 @@ static ZHDR hdr_zabort = {
     }
 };
 
+static ZHDR hdr_zack = {
+    .type = ZACK,
+    .position = {
+        .p0 = 0,
+        .p1 = 0,
+        .p2 = 0,
+        .p3 = 0
+    }
+};
+
+static ZHDR hdr_zfin = {
+    .type = ZFIN,
+    .position = {
+        .p0 = 0,
+        .p1 = 0,
+        .p2 = 0,
+        .p3 = 0
+    }
+};
+
 static uint8_t zrinit_buf[HEX_HDR_STR_LEN + 1];
 static uint8_t znak_buf[HEX_HDR_STR_LEN + 1];
 static uint8_t zrpos_buf[HEX_HDR_STR_LEN + 1];
 static uint8_t zabort_buf[HEX_HDR_STR_LEN + 1];
+static uint8_t zack_buf[HEX_HDR_STR_LEN + 1];
+static uint8_t zfin_buf[HEX_HDR_STR_LEN + 1];
 
 static ZRESULT init_hdr_buf(ZHDR *hdr, uint8_t *buf) {
   buf[HEX_HDR_STR_LEN] = 0;
@@ -118,6 +143,8 @@ static ZRESULT znak() {
 
 int main() {
   uint8_t rzr_buf[4];
+  uint8_t data_buf[DATA_BUF_LEN];
+  uint16_t count;
   ZHDR hdr;
 
   // Set up static header buffers for later use...
@@ -135,6 +162,14 @@ int main() {
   }
   if (IS_ERROR(init_hdr_buf(&hdr_zabort, zabort_buf))) {
     printf("Failed to initialize ZABORT buffer; Bailing...");
+    return 3;
+  }
+  if (IS_ERROR(init_hdr_buf(&hdr_zack, zack_buf))) {
+    printf("Failed to initialize ZACK buffer; Bailing...");
+    return 3;
+  }
+  if (IS_ERROR(init_hdr_buf(&hdr_zfin, zfin_buf))) {
+    printf("Failed to initialize ZACK buffer; Bailing...");
     return 3;
   }
 
@@ -155,7 +190,8 @@ int main() {
 
           switch (hdr.type) {
           case ZRQINIT:
-            DEBUGF("Is ZRQINIT\n");
+          case ZEOF:
+            DEBUGF("Is ZRQINIT or ZEOF\n");
             send(ZPAD);
             send(ZPAD);
             send(ZDLE);
@@ -170,6 +206,23 @@ int main() {
             }
 
             continue;
+
+          case ZFIN:
+            DEBUGF("Is ZFIN\n");
+            send(ZPAD);
+            send(ZPAD);
+            send(ZDLE);
+
+            result = send_sz(zfin_buf);
+
+            if (result == OK) {
+              printf("Send ZFIN was OK\n");
+            } else if(result == CLOSED) {
+              printf("Got EOF; Breaking loop...");
+            }
+
+            printf("All done :)\n");
+            goto cleanup;
 
           case ZFILE:
             DEBUGF("Is ZFILE\n");
@@ -193,7 +246,100 @@ int main() {
               }
             }
 
-            // TODO handle this :)
+            count = DATA_BUF_LEN;
+            result = read_data_block(data_buf, &count);
+            DEBUGF("Result of data block read is [0x%04x] (got %d character(s))\n", result, count);
+
+            if (!IS_ERROR(result)) {
+              DEBUGF("Filename is: %s\n", data_buf);
+
+              send(ZPAD);
+              send(ZPAD);
+              send(ZDLE);
+              result = send_sz(zrpos_buf);
+
+              if (result == OK) {
+                printf("Send ZRPOS was OK\n");
+              } else if(result == CLOSED) {
+                printf("Got EOF; Breaking loop...");
+                goto cleanup;
+              }
+            }
+
+            // TODO care about XON that will follow?
+
+            continue;
+
+          case ZDATA:
+            DEBUGF("Is ZDATA\n");
+
+            while (true) {
+              count = DATA_BUF_LEN;
+              result = read_data_block(data_buf, &count);
+              DEBUGF("Result of data block read is [0x%04x] (got %d character(s))\n", result, count);
+
+              if (!IS_ERROR(result)) {
+                DEBUGF("Received %d byte(s) of data\n", count);
+
+                if (result == GOT_CRCE) {
+                  // End of frame, header follows, no ZACK expected.
+                  DEBUGF("Got CRCE; Frame done [NOACK]\n");
+                  break;
+                } else if (result == GOT_CRCG) {
+                  // Frame continues, non-stop (another data packet follows)
+                  DEBUGF("Got CRCG; Frame continues [NOACK]\n");
+                  continue;
+                } else if (result == GOT_CRCQ) {
+                  // Frame continues, ACK required
+                  DEBUGF("Got CRCQ; Frame continues [ACK]\n");
+                  send(ZPAD);
+                  send(ZPAD);
+                  send(ZDLE);
+                  result = send_sz(zack_buf);
+
+                  if (result == OK) {
+                    printf("Send ZACK was OK\n");
+                  } else if(result == CLOSED) {
+                    printf("Got EOF; Breaking loop...");
+                    goto cleanup;
+                  }
+
+                  continue;
+                } else if (result == GOT_CRCW) {
+                  // End of frame, header follows, ZACK expected.
+                  DEBUGF("Got CRCW; Frame done [ACK]\n");
+
+                  send(ZPAD);
+                  send(ZPAD);
+                  send(ZDLE);
+                  result = send_sz(zack_buf);
+
+                  if (result == OK) {
+                    printf("Send ZACK was OK\n");
+                  } else if(result == CLOSED) {
+                    printf("Got EOF; Breaking loop...");
+                    goto cleanup;
+                  }
+
+                  break;
+                }
+
+              } else {
+                DEBUGF("Error while receiving block: 0x%04x\n", result);
+
+                send(ZPAD);
+                send(ZPAD);
+                send(ZDLE);
+                result = send_sz(znak_buf);
+
+                if (result == OK) {
+                  printf("Send ZNACK was OK\n");
+                } else if(result == CLOSED) {
+                  printf("Got EOF; Breaking loop...");
+                  goto cleanup;
+                }
+              }
+            }
 
             continue;
 

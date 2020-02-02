@@ -32,6 +32,20 @@ void calc_hdr_crc(ZHDR *hdr) {
   hdr->crc2 = CRC_LSB(crc);
 }
 
+uint16_t calc_data_crc(uint8_t *buf, uint16_t len) {
+  uint16_t crc = CRC_START_XMODEM;
+
+  for (int i = 0; i < len; i++) {
+    crc = update_crc_ccitt(crc, buf[i]);
+  }
+
+  return crc;
+}
+
+uint32_t calc_data_crc32(uint8_t *buf, uint16_t len) {
+  return crc_32(buf, len);
+}
+
 ZRESULT to_hex_header(ZHDR *hdr, uint8_t *buf, int max_len) {
   DEBUGF("Converting header to hex; Dump is:\n");
   DEBUG_DUMPHDR(hdr);

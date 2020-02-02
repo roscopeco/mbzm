@@ -24,7 +24,7 @@
 extern 'C' {
 #endif
 
-// Control characters
+// ASCII Control characters
 #define XON         0x11
 #define XOFF        0x13
 #define LF          0x0a
@@ -32,6 +32,12 @@ extern 'C' {
 #define ZPAD        '*'
 #define ZDLE        0x18        /* ZDLE and CAN */
 #define CAN         0x18        /* are the same */
+
+// ZDLE Escape sequences
+#define ZCRCE       'h'
+#define ZCRCG       'i'
+#define ZCRCQ       'j'
+#define ZCRCW       'k'
 
 // Header types
 #define ZBIN16      'A'
@@ -75,10 +81,19 @@ extern 'C' {
 #define ZCNL        0x02                /* Convert NL to local end of line convention       */
 #define ZCRESUM     0x03                /* Resume interrupted file transfer                 */
 
-// Result codes
+// ZRESULT Masks
 #define VALUE_MASK        0x00ff        /* Mask used to extract value from ZRESULT          */
 #define ERROR_MASK        0xf000        /* Mask used to determine if result is an error     */
-#define OK                0x0100        /* Return code for "all is well"                    */
+
+// ZRESULT codes - Non-errors
+#define OK                0x0100        /* Generic return code for "all is well"            */
+#define FIN               0x0200        /* ORe with < 0xff to indicate a return condition   */
+#define GOT_CRCE          (FIN | ZCRCE) /* CRC follows, end of frame, header is next        */
+#define GOT_CRCG          (FIN | ZCRCG) /* CRC follows, frame continues (non-stop)          */
+#define GOT_CRCQ          (FIN | ZCRCQ) /* CRC follows, frame continues, ZACK expected      */
+#define GOT_CRCW          (FIN | ZCRCW) /* CRC follows, end of frame, ZACK expected         */
+
+// ZRESULT codes - Errors
 #define BAD_DIGIT         0x1000        /* Bad digit when converting from hex               */
 #define CLOSED            0x2000        /* Got EOF when reading from stream                 */
 #define BAD_HEADER_TYPE   0x3000        /* Bad header type in stream (probably noise)       */
@@ -88,10 +103,12 @@ extern 'C' {
 #define OUT_OF_RANGE      0x7000        /* Conversion attempted for out-of-range number     */
 #define OUT_OF_SPACE      0x8000        /* Supplied buffer is not big enough                */
 #define CANCELLED         0x9000        /* 5x CAN received                                  */
+#define BAD_ESCAPE        0xa000        /* Bad escape sequence                              */
 #define UNSUPPORTED       0xf000        /* Attempted to use an unsupported protocol feature */
 
 #define ERROR_CODE(x)     (x & ERROR_MASK)
 #define IS_ERROR(x)       ((bool)(ERROR_CODE((x)) != 0))
+#define IS_FIN(x)         ((bool)((x & FIN) == FIN))
 #define ZVALUE(x)         ((uint8_t)(x & 0xff))
 
 // Nybble to byte / byte to word / vice-versa
@@ -103,10 +120,25 @@ extern 'C' {
 #define WMSB(w)           ((w & 0xff00) >> 8)   /* word         -> most-significant byte    */
 #define WLSB(w)           (w & 0x00ff)          /* word         -> least-significant byte   */
 
+// Byte to dword / vice versa
+#define BTODW(b1, b2, b3, b4)   (b1 << 24 | b2 << 16 | b3 << 8 | b4)    /* 4 bytes -> dword */
+#define DWB1(l)                 ((l & 0xff000000) >> 24)                /* MSB              */
+#define DWB2(l)                 ((l & 0x00ff0000) >> 16)                /* 2nd-MSB          */
+#define DWB3(l)                 ((l & 0x0000ff00) >> 8)                 /* 3rd-MSB          */
+#define DWB4(l)                 (l & 0x000000ff)                        /* LSB              */
+
+
 // CRC manipulation
 #define CRC               BTOW                  /* Convert two-bytes to 16-bit CRC          */
 #define CRC_MSB           WMSB                  /* Get most-significant byte of 16-bit CRC  */
 #define CRC_LSB           WLSB                  /* Get least-significant byte of 16-bit CRC */
+
+// CRC32 manipulation
+#define CRC32             BTODW                 /* Convert four bytes to 32-bit CRC         */
+#define CRC32_B1          DWB1                  /* Most-significant byte of CRC32           */
+#define CRC32_B2          DWB2                  /* Second-most-significant byte of CRC32    */
+#define CRC32_B3          DWB3                  /* Third-most-significant byte of CRC32     */
+#define CRC32_B4          DWB4                  /* Least-significant byte of CRC32          */
 
 // Various sizes
 #define ZHDR_SIZE         0x07                  /* Size of ZHDR (excluding padding)         */

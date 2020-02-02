@@ -368,7 +368,7 @@ void test_read_escaped() {
   TEST_CHECK(read_escaped() == CLOSED);
 
   // 5x CAN cancels
-  set_buf("\x18\x18\x18\x18\x18ZYX", 5);
+  set_buf("\x18\x18\x18\x18\x18ZYX", 8);
   TEST_CHECK(read_escaped() == CANCELLED);
   TEST_CHECK(read_escaped() == 'Z');
 }

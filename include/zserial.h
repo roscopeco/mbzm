@@ -53,6 +53,12 @@ ZRESULT read_binary16_header(ZHDR *hdr);
 ZRESULT read_escaped();
 
 /*
+ * len specifies the maximum length to read on entry,
+ * and contains actual length on return.
+ */
+ZRESULT read_data_block(uint8_t *buf, uint16_t *len);
+
+/*
  * Send a null-terminated string.
  */
 ZRESULT send_sz(uint8_t *data);

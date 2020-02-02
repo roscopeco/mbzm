@@ -9,8 +9,8 @@
  * Copyright (c)2020 Ross Bamford
  * See top-level LICENSE.md for licence information.
  *
- * Replacement for stdlib routines in freestanding envs.
- * Replace these with your own if you already have libc.
+ * Declare stdlib routines when compiling for freestanding envs.
+ * No implementations are provided....
  * ------------------------------------------------------------
  */
 
