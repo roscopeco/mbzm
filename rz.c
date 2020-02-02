@@ -19,86 +19,9 @@
 #include <string.h>
 #include "zmodem.h"
 
-// Spec says a data packet is max 1024 bytes, but add some headroom...
-#define DATA_BUF_LEN    2048
+#include "rzinit.c"
 
 static FILE *com;
-
-static ZHDR hdr_zrinit = {
-  .type = ZRINIT,
-  .flags = {
-      .f0 = 0,
-      .f1 = 0
-  },
-  .position = {
-      .p0 = 0x00,
-      .p1 = 0x00
-  }
-};
-
-static ZHDR hdr_znak = {
-    .type = ZNAK,
-    .flags = {
-        .f0 = 0,
-        .f1 = 0,
-        .f2 = 0,
-        .f3 = 0
-    }
-};
-
-static ZHDR hdr_zrpos = {
-    .type = ZRPOS,
-    .position = {
-        .p0 = 0,
-        .p1 = 0,
-        .p2 = 0,
-        .p3 = 0
-    }
-};
-
-static ZHDR hdr_zabort = {
-    .type = ZABORT,
-    .position = {
-        .p0 = 0,
-        .p1 = 0,
-        .p2 = 0,
-        .p3 = 0
-    }
-};
-
-static ZHDR hdr_zack = {
-    .type = ZACK,
-    .position = {
-        .p0 = 0,
-        .p1 = 0,
-        .p2 = 0,
-        .p3 = 0
-    }
-};
-
-static ZHDR hdr_zfin = {
-    .type = ZFIN,
-    .position = {
-        .p0 = 0,
-        .p1 = 0,
-        .p2 = 0,
-        .p3 = 0
-    }
-};
-
-static uint8_t zrinit_buf[HEX_HDR_STR_LEN + 1];
-static uint8_t znak_buf[HEX_HDR_STR_LEN + 1];
-static uint8_t zrpos_buf[HEX_HDR_STR_LEN + 1];
-static uint8_t zabort_buf[HEX_HDR_STR_LEN + 1];
-static uint8_t zack_buf[HEX_HDR_STR_LEN + 1];
-static uint8_t zfin_buf[HEX_HDR_STR_LEN + 1];
-
-static ZRESULT init_hdr_buf(ZHDR *hdr, uint8_t *buf) {
-  buf[HEX_HDR_STR_LEN] = 0;
-  calc_hdr_crc(hdr);
-  return to_hex_header(hdr, buf, HEX_HDR_STR_LEN);
-}
-
 
 ZRESULT recv() {
   register int result = fgetc(com);
@@ -120,66 +43,56 @@ ZRESULT send(uint8_t chr) {
   }
 }
 
-static ZRESULT zabort() {
-  DEBUGF("Aborting transfer...\n");
+static ZRESULT send_sz_hex_hdr(uint8_t *buf) {
+  send(ZPAD);
+  send(ZPAD);
+  send(ZDLE);
 
-  if (send_sz(zabort_buf) != OK) {
-    DEBUGF("Send ZABORT failed!\n");
-  }
-
-  return OK;
-}
-
-static ZRESULT znak() {
-  DEBUGF("Sending ZNAK...\n");
-
-  ZRESULT result = send_sz(zabort_buf);
-  if (result != OK) {
-    DEBUGF("Send ZNAK failed!\n");
-  }
-
-  return result;
+  return send_sz(buf);
 }
 
 int main() {
   uint8_t rzr_buf[4];
   uint8_t data_buf[DATA_BUF_LEN];
   uint16_t count;
+  uint32_t received_data_size = 0;
   ZHDR hdr;
 
   // Set up static header buffers for later use...
   if (IS_ERROR(init_hdr_buf(&hdr_zrinit, zrinit_buf))) {
-    printf("Failed to initialize ZRINIT buffer; Bailing...");
+    FPRINTF(stderr, "Failed to initialize ZRINIT buffer; Bailing...");
     return 3;
   }
   if (IS_ERROR(init_hdr_buf(&hdr_znak, znak_buf))) {
-    printf("Failed to initialize ZNAK buffer; Bailing...");
+    FPRINTF(stderr, "Failed to initialize ZNAK buffer; Bailing...");
     return 3;
   }
   if (IS_ERROR(init_hdr_buf(&hdr_zrpos, zrpos_buf))) {
-    printf("Failed to initialize ZRPOS buffer; Bailing...");
+    FPRINTF(stderr, "Failed to initialize ZRPOS buffer; Bailing...");
     return 3;
   }
   if (IS_ERROR(init_hdr_buf(&hdr_zabort, zabort_buf))) {
-    printf("Failed to initialize ZABORT buffer; Bailing...");
+    FPRINTF(stderr, "Failed to initialize ZABORT buffer; Bailing...");
     return 3;
   }
   if (IS_ERROR(init_hdr_buf(&hdr_zack, zack_buf))) {
-    printf("Failed to initialize ZACK buffer; Bailing...");
+    FPRINTF(stderr, "Failed to initialize ZACK buffer; Bailing...");
     return 3;
   }
   if (IS_ERROR(init_hdr_buf(&hdr_zfin, zfin_buf))) {
-    printf("Failed to initialize ZACK buffer; Bailing...");
+    FPRINTF(stderr, "Failed to initialize ZACK buffer; Bailing...");
     return 3;
   }
 
   com = fopen("/dev/pts/2", "a+");
 
   if (com != NULL) {
-    printf("Opened port just fine\n");
+    DEBUGF("Opened port just fine\n");
+
+    PRINTF("rosco_m68k ZMODEM receive example v0.01 - Awaiting remote transfer initiation...\n");
 
     if (await("rz\r", (char*)rzr_buf, 4) == OK) {
-      printf("Got rzr...\n");
+      DEBUGF("Got rzr...\n");
 
       while (true) {
         uint16_t result = await_header(&hdr);
@@ -192,16 +105,13 @@ int main() {
           case ZRQINIT:
           case ZEOF:
             DEBUGF("Is ZRQINIT or ZEOF\n");
-            send(ZPAD);
-            send(ZPAD);
-            send(ZDLE);
 
-            result = send_sz(zrinit_buf);
+            result = send_sz_hex_hdr(zrinit_buf);
 
             if (result == OK) {
-              printf("Send ZRINIT was OK\n");
+              DEBUGF("Send ZRINIT was OK\n");
             } else if(result == CLOSED) {
-              printf("Got EOF; Breaking loop...");
+              FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
               goto cleanup;
             }
 
@@ -209,19 +119,16 @@ int main() {
 
           case ZFIN:
             DEBUGF("Is ZFIN\n");
-            send(ZPAD);
-            send(ZPAD);
-            send(ZDLE);
 
-            result = send_sz(zfin_buf);
+            result = send_sz_hex_hdr(zfin_buf);
 
             if (result == OK) {
-              printf("Send ZFIN was OK\n");
+              DEBUGF("Send ZFIN was OK\n");
             } else if(result == CLOSED) {
-              printf("Got EOF; Breaking loop...");
+              FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
             }
 
-            printf("All done :)\n");
+            PRINTF("Transfer complete; Received %0d byte(s)\n", received_data_size);
             goto cleanup;
 
           case ZFILE:
@@ -238,12 +145,7 @@ int main() {
               DEBUGF("--> Resume interrupted transfer (IGNORED - NOT SUPPORTED)\n");
               break;
             default:
-              DEBUGF("--> Invalid conversion flag!\n");
-              if (znak() != OK) {
-                DEBUGF("Failed to NAK; Bailing...\n");
-                zabort();
-                goto cleanup;
-              }
+              FPRINTF(stderr, "WARN: Invalid conversion flag [0x%02x] (IGNORED - Assuming Binary)\n", hdr.flags.f0);
             }
 
             count = DATA_BUF_LEN;
@@ -251,17 +153,14 @@ int main() {
             DEBUGF("Result of data block read is [0x%04x] (got %d character(s))\n", result, count);
 
             if (!IS_ERROR(result)) {
-              DEBUGF("Filename is: %s\n", data_buf);
+              PRINTF("Receiving file: '%s'\n", data_buf);
 
-              send(ZPAD);
-              send(ZPAD);
-              send(ZDLE);
-              result = send_sz(zrpos_buf);
+              result = send_sz_hex_hdr(zrpos_buf);
 
               if (result == OK) {
-                printf("Send ZRPOS was OK\n");
+                DEBUGF("Send ZRPOS was OK\n");
               } else if(result == CLOSED) {
-                printf("Got EOF; Breaking loop...");
+                FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
                 goto cleanup;
               }
             }
@@ -278,6 +177,8 @@ int main() {
               result = read_data_block(data_buf, &count);
               DEBUGF("Result of data block read is [0x%04x] (got %d character(s))\n", result, count);
 
+              received_data_size += (count - 1);
+
               if (!IS_ERROR(result)) {
                 DEBUGF("Received %d byte(s) of data\n", count);
 
@@ -292,15 +193,13 @@ int main() {
                 } else if (result == GOT_CRCQ) {
                   // Frame continues, ACK required
                   DEBUGF("Got CRCQ; Frame continues [ACK]\n");
-                  send(ZPAD);
-                  send(ZPAD);
-                  send(ZDLE);
-                  result = send_sz(zack_buf);
+
+                  result = send_sz_hex_hdr(zack_buf);
 
                   if (result == OK) {
-                    printf("Send ZACK was OK\n");
+                    DEBUGF("Send ZACK was OK\n");
                   } else if(result == CLOSED) {
-                    printf("Got EOF; Breaking loop...");
+                    FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
                     goto cleanup;
                   }
 
@@ -309,15 +208,12 @@ int main() {
                   // End of frame, header follows, ZACK expected.
                   DEBUGF("Got CRCW; Frame done [ACK]\n");
 
-                  send(ZPAD);
-                  send(ZPAD);
-                  send(ZDLE);
-                  result = send_sz(zack_buf);
+                  result = send_sz_hex_hdr(zack_buf);
 
                   if (result == OK) {
-                    printf("Send ZACK was OK\n");
+                    DEBUGF("Send ZACK was OK\n");
                   } else if(result == CLOSED) {
-                    printf("Got EOF; Breaking loop...");
+                    FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
                     goto cleanup;
                   }
 
@@ -327,15 +223,12 @@ int main() {
               } else {
                 DEBUGF("Error while receiving block: 0x%04x\n", result);
 
-                send(ZPAD);
-                send(ZPAD);
-                send(ZDLE);
-                result = send_sz(znak_buf);
+                result = send_sz_hex_hdr(znak_buf);
 
                 if (result == OK) {
-                  printf("Send ZNACK was OK\n");
+                  DEBUGF("Send ZNACK was OK\n");
                 } else if(result == CLOSED) {
-                  printf("Got EOF; Breaking loop...");
+                  FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
                   goto cleanup;
                 }
               }
@@ -344,7 +237,7 @@ int main() {
             continue;
 
           default:
-            DEBUGF("Completely unhandled header - is 0x%02x :S\n", hdr.type);
+            FPRINTF(stderr, "WARN: Ignoring unknown header type 0x%02x\n", hdr.type);
             continue;
           }
 
@@ -364,14 +257,14 @@ int main() {
     cleanup:
     
     if (fclose(com)) {
-      printf("Failed to close file\n");
+      PRINTF("Failed to close file\n");
       return 1;
     } else {
       return 0;
     }
 
   } else {
-    printf("Unable to open port\n");
+    PRINTF("Unable to open port\n");
     return 2;
   }
 }

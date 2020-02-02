@@ -7,7 +7,7 @@ OBJFILES=rz.o zheaders.o znumbers.o zserial.o crcccitt.o crc32.o
 all: rz
 
 %.o: %.c
-	$(CC) $(CFLAGS) -DZDEBUG -c -o $@ $<
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 rz: $(OBJFILES)
 	$(LD) $^ -o $@

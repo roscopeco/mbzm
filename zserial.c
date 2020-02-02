@@ -94,7 +94,7 @@ ZRESULT read_escaped() {
       goto gotzdle;
     default:
       // TODO support control escaping?
-      DEBUGF("  >> READ_ESCAPED: Got 0x%02x [%c]\n", c, c & 0xff);
+//      DEBUGF("  >> READ_ESCAPED: Got 0x%02x [%c]\n", c, c & 0xff);
       return c;
     }
   }
