@@ -22,9 +22,12 @@ implementation to see how things were supposed to work.
 
 ## Features/Limitations
 
-Right now, this is very limited. For one thing, it can only receive. Expanding it to support
+Right now, this is very limited. For one thing, it can only receive. For another, it doesn't deal well
+with errors (i.e. it mostly doesn't work if there are errors on the line). Expanding it to support
 sending probably wouldn't be all that much work, but I don't need it right now so I haven't
-done it. Other notable things:
+done it. Error handling I _do_ need (The aim is to use this with a 1980's UART), so that's a WIP.
+
+Other notable things:
 
 * It doesn't do any memory allocation, so it can be used where malloc is unavailable.
 * It's _sort-of_ optimised for use in 16/32-bit environments (I wrote it with M68010 as the primary target)
@@ -40,7 +43,7 @@ Additionally, the included sample has even more limitations, such as:
 * It doesn't support the (optional) ZSINIT frame and will just ignore it
 * It doesn't support resume
 * It has a ton of other limitations I'm too lazy to list right now...
-* ... but it does work for the simple case of receiving data with error correction.
+* ... but it does work for the simple case of receiving data _with no error correction_.
 
 Note that this last set aren't limitations of the library _per se_ - it's more that they 
 aren't provided by the library, and the example program doesn't implement them either.
