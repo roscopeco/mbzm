@@ -72,14 +72,14 @@ ZRESULT zm_read_hex_byte() {
   }
 }
 
-ZRESULT zm_read_escaped() {
+ZRESULT zm_read_escaped(bool noHdr) {
   ZRESULT c;
 
   while (true) {
     c = zm_recv();
 
     // Return immediately if non-control character or error
-    if (NONCONTROL(c) || IS_ERROR(c)) {
+    if (NONCONTROL(c) || IS_ERROR(c) || IS_CTL(c)) {
       return c;
     }
 
@@ -179,13 +179,15 @@ ZRESULT zm_read_escaped() {
     return GOT_CRCW;
   case ZHEX:
     DEBUGF("  >> READ_ESCAPED: Got ZHEX\n");
-    return GOT_HDR_HEX;
+    return noHdr ? ZHEX : GOT_HDR_HEX;
   case ZBIN16:
     DEBUGF("  >> READ_ESCAPED: Got ZBIN16\n");
-    return GOT_HDR_BIN16;
+    return noHdr ? ZBIN16 : GOT_HDR_BIN16;
   case ZBIN32:
     DEBUGF("  >> READ_ESCAPED: Got ZBIN32\n");
-    return GOT_HDR_BIN32;
+    return noHdr ? ZBIN32 : GOT_HDR_BIN32;
+  case TIMEOUT:
+    return TIMEOUT;
   default:
     if ((c & 0x60) == 0x40) {
       TRACEF("  >> READ_ESCAPED: Got escaped character: 0x%02x\n", (c ^ 0x40));
@@ -203,13 +205,13 @@ static ZRESULT recv_data_block(uint8_t *buf, uint16_t *len) {
   *len = 0;
 
   while (*len < max) {
-    ZRESULT c = zm_read_escaped();
+    ZRESULT c = zm_read_escaped(true);
 
     if (IS_ERROR(c)) {
       DEBUGF("  >> RECV_BLOCK: GOT ERROR: 0x%04x\n", c);
       return c;
     } else if (IS_CTL(c)) {
-      DEBUGF("  >> RECV_BLOCK: GOT CONTROL (probably cancel): 0x%04x\n", c);
+      DEBUGF("  >> RECV_BLOCK: GOT CONTROL (probably cancel / timeout): 0x%04x\n", c);
       return c;
     } else {
       // Always add, even if frameend, as CRC takes that into account...
@@ -233,7 +235,7 @@ ZRESULT zm_read_data_block(uint8_t *buf, uint16_t *len) {
     return result;
   } else {
     // CRC bytes are ZDLE escaped!
-    crc_result = zm_read_escaped();
+    crc_result = zm_read_escaped(true);
     if (IS_ERROR(crc_result)) {
       DEBUGF("  >> READ_BLOCK: Error while reading crc1: 0x%04x\n", crc_result);
       return crc_result;
@@ -241,7 +243,7 @@ ZRESULT zm_read_data_block(uint8_t *buf, uint16_t *len) {
 
     uint8_t crc1 = ((uint8_t)crc_result) & 0xff;
 
-    crc_result = zm_read_escaped();
+    crc_result = zm_read_escaped(true);
     if (IS_ERROR(crc_result)) {
       return crc_result;
       DEBUGF("  >> READ_BLOCK: Error while reading crc2: 0x%04x\n", crc_result);
@@ -271,6 +273,8 @@ ZRESULT zm_await(char *str, char *buf, int buf_size) {
 
     if (IS_ERROR(c)) {
       return c;
+    } else if(c == TIMEOUT) {
+      continue;
     } else {
       // shift buffer if necessary
       if (ptr == buf_size - 1) {
@@ -310,21 +314,21 @@ ZRESULT zm_read_hex_header(ZHDR *hdr) {
     // TODO use read_hex_byte here...
     uint16_t c1 = zm_recv();
 
-    if (IS_ERROR(c1)) {
-      DEBUGF("READ_HEX: Character %d/1 is error: 0x%04x\n", i, c1);
+    if (IS_CTL(c1)) {
+      DEBUGF("READ_HEX: Character %d/1 is control: 0x%04x\n", i, c1);
       return c1;
     } else if (IS_ERROR(c1)) {
-      DEBUGF("READ_HEX: Character %d/1 is EOF\n", i);
+      DEBUGF("READ_HEX: Character %d/1 is Error: 0x%04x\n", i, c1);
       return CLOSED;
     } else {
       TRACEF("READ_HEX: Character %d/1 is good: 0x%02x\n", i, c1);
       uint16_t c2 = zm_recv();
 
-      if (IS_ERROR(c2)) {
-        DEBUGF("READ_HEX: Character %d/2 is error: 0x%04x\n", i, c2);
+      if (IS_CTL(c2)) {
+        DEBUGF("READ_HEX: Character %d/2 is control: 0x%04x\n", i, c2);
         return c2;
       } else if (IS_ERROR(c2)) {
-        DEBUGF("READ_HEX: Character %d/2 is EOF\n", i);
+        DEBUGF("READ_HEX: Character %d/2 is Error: 0x%04x\n", i, c2);
         return CLOSED;
       } else {
         TRACEF("READ_HEX: Character %d/2 is good: 0x%02x\n", i, c2);
@@ -365,7 +369,10 @@ ZRESULT zm_read_binary16_header(ZHDR *hdr) {
   for (int i = 0; i < ZHDR_SIZE; i++) {
     uint16_t b = zm_recv();
 
-    if (IS_ERROR(b)) {
+    if (IS_CTL(b)) {
+      DEBUGF("READ_BIN16: Character %d/1 is control: 0x%04x\n", i, b);
+      return b;
+    } else if (IS_ERROR(b)) {
       DEBUGF("READ_BIN16: Character %d/1 is error: 0x%04x\n", i, b);
       return b;
     } else {
@@ -394,13 +401,13 @@ ZRESULT zm_await_header(ZHDR *hdr) {
   DEBUGF(">> ZM_AWAIT_HEADER\n");
 
   while (true) {
-    uint16_t result = zm_read_escaped();
+    uint16_t result = zm_read_escaped(false);
 
     if (IS_ERROR(result)) {
       DEBUGF("ZM_AWAIT_HEADER: Error while reading escaped 0x%04x...\n", result);
       return result;
     } else if (IS_CTL(result)) {
-      DEBUGF("ZM_AWAIT_HEADER: Control received while waiting; probably cancelled...\n");
+      DEBUGF("ZM_AWAIT_HEADER: Control received while waiting; probable timeout...\n");
       return result;
     } else {
       switch (result) {

@@ -375,23 +375,23 @@ void test_read_escaped() {
   // simple non-control characters
   set_buf("ABC", 3);
 
-  TEST_CHECK(zm_read_escaped() == 'A');
-  TEST_CHECK(zm_read_escaped() == 'B');
-  TEST_CHECK(zm_read_escaped() == 'C');
+  TEST_CHECK(zm_read_escaped(false) == 'A');
+  TEST_CHECK(zm_read_escaped(false) == 'B');
+  TEST_CHECK(zm_read_escaped(false) == 'C');
 
   // CLOSED if end of stream
-  TEST_CHECK(zm_read_escaped() == CLOSED);
+  TEST_CHECK(zm_read_escaped(false) == CLOSED);
 
   // XON/XOFF are skipped
   set_buf("\x11\x11\x13Z", 4);
 
-  TEST_CHECK(zm_read_escaped() == 'Z');
-  TEST_CHECK(zm_read_escaped() == CLOSED);
+  TEST_CHECK(zm_read_escaped(false) == 'Z');
+  TEST_CHECK(zm_read_escaped(false) == CLOSED);
 
   // 5x CAN cancels
   set_buf("\x18\x18\x18\x18\x18ZYX", 8);
-  TEST_CHECK(zm_read_escaped() == CANCELLED);
-  TEST_CHECK(zm_read_escaped() == 'Z');
+  TEST_CHECK(zm_read_escaped(false) == CANCELLED);
+  TEST_CHECK(zm_read_escaped(false) == 'Z');
 }
 
 TEST_LIST = {

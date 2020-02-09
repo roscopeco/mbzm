@@ -18,41 +18,126 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <time.h>
+#include <sys/select.h>
+#include <errno.h>
 #include "zmodem.h"
 
 #include "rzinit.c"
 
-static FILE *com;
+//static FILE *com;
+static int com;
 static FILE *out;
 
 /*
  * Implementation-defined receive character function.
  */
 ZRESULT zm_recv() {
-  register int result = fgetc(com);
+  time_t start, now;
+  uint8_t buf;
 
-  if (result == EOF) {
-    return CLOSED;
-  } else {
-    int rnd = rand();
-    if (rnd < RAND_MAX / 1000) {
-      return rnd % 255;
+  time(&start);
+
+  while (true) {
+    time(&now);
+
+    if (now - start > 5) {
+      DEBUGF("ZM_RECV: TIMEOUT");
+      return TIMEOUT;
     } else {
-      return result;
+      if (read(com, &buf, 1) == 1) {
+        int rnd = rand();
+
+        if (rnd < RAND_MAX / 1000) {
+          return rnd % 255;
+        } else {
+          return buf;
+        }
+      } else {
+        continue;
+      }
     }
   }
+
+
+//  fd_set set;
+//  struct timeval timeout;
+//  uint8_t buf = 0;
+//
+//  FD_ZERO(&set);
+//  FD_SET(com, &set);
+//
+//  timeout.tv_sec = 5;
+//  timeout.tv_usec = 0;
+//
+//  int result = select(com + 1, &set, NULL, NULL, &timeout);
+//
+//  if (result == -1) {
+//    DEBUGF("Select failed (-1)\n");
+//    return CLOSED;
+//  } else if (result == 0) {
+//    DEBUGF("Select failed (timeout)\n");
+//    return TIMEOUT;
+//  } else {
+//    if (read(com, &buf, 1) == 1) {
+//      int rnd = rand();
+//
+//      if (rnd < RAND_MAX / 1000) {
+//        return rnd % 255;
+//      } else {
+//        return buf;
+//      }
+//    } else {
+//      DEBUGF("read failed!\n");
+//      return CLOSED;
+//    }
+//  }
+
+
+
+  //  register int result = fgetc(com);
+//
+//  if (result == EOF) {
+//    return CLOSED;
+//  } else {
+//    int rnd = rand();
+//    if (rnd < RAND_MAX / 1000) {
+//      return rnd % 255;
+//    } else {
+//      return result;
+//    }
+//  }
 }
 
 /*
  * Implementation-defined send character function.
  */
 ZRESULT zm_send(uint8_t chr) {
-  register int result = putc((char)chr, com);
+  int times = 0;
 
-  if (result == EOF) {
-    return CLOSED;
-  } else {
-    return OK;
+  while (true) {
+    if (times > 1) {
+      DEBUGF("ZM_SEND: Write timeout; Giving up...\n");
+      return TIMEOUT;
+    }
+
+    register int result = write(com, &chr, 1);
+    if (result != 1) {
+      DEBUGF("ZM_SEND: Write failed (%s)!\n", strerror(errno));
+      times++;
+      sleep(1);
+      continue;
+    } else {
+      return OK;
+    }
+  }
+
+  if (fsync(com) != 0) {
+    DEBUGF("WARN: FSYNC FAILED!\n");
   }
 }
 
@@ -89,9 +174,10 @@ int main() {
     return 3;
   }
 
-  com = fopen("/dev/pts/2", "a+");
+//  com = fopen("/dev/pts/2", "a+");
+  com = open("/dev/pts/7", O_RDWR | O_NONBLOCK);
 
-  if (com != NULL) {
+  if (com > 0) {
     DEBUGF("Opened port just fine\n");
 
     PRINTF("rosco_m68k ZMODEM receive example v0.01 - Awaiting remote transfer initiation...\n");
@@ -103,6 +189,11 @@ int main() {
         uint16_t result = zm_await_header(&hdr);
 
         switch (result) {
+        case TIMEOUT:
+          DEBUGF("Timeout; Resend last header\n");
+          zm_resend_last_header();
+          continue;
+
         case OK:
           DEBUGF("Got valid header\n");
 
@@ -258,9 +349,9 @@ int main() {
                   goto cleanup;
                 }
 
-                DEBUGF("NOTICE:: Continuing data block loop after error!!!\n");
-
-                continue;
+//                DEBUGF("NOTICE:: Continuing data block loop after error!!!\n");
+//                continue;
+                break;
 
               } else {
                 DEBUGF("FATAL: Error 0x%04x while receiving block; Bailing...\n", result);
@@ -314,7 +405,7 @@ int main() {
     if (out != NULL && fclose(out)) {
       FPRINTF(stderr, "Failed to close output file\n");
     }
-    if (com != NULL && fclose(com)) {
+    if (com != 0 && close(com)) {
       FPRINTF(stderr, "Failed to close serial port\n");
     }
 

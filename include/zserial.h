@@ -46,7 +46,7 @@ ZRESULT zm_read_hex_byte();
  * Read character, taking care of ZMODEM Data Link Escapes (ZDLE)
  * and swallowing XON/XOFF.
  */
-ZRESULT zm_read_escaped();
+ZRESULT zm_read_escaped(bool noHdr);
 
 /*
  * buf must be one character longer than the string...
