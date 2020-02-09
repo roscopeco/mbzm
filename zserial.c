@@ -88,6 +88,9 @@ ZRESULT zm_read_escaped() {
     case XON | 0x80:
     case XOFF:
     case XOFF | 0x80:
+    case ZPAD:
+    case ZPAD | 0200:
+      continue;
       continue;
     case ZDLE:
       TRACEF("  >> READ_ESCAPED: Got ZDLE\n");
@@ -174,6 +177,15 @@ ZRESULT zm_read_escaped() {
   case ZCRCW:
     DEBUGF("  >> READ_ESCAPED: Got ZCRCW\n");
     return GOT_CRCW;
+  case ZHEX:
+    DEBUGF("  >> READ_ESCAPED: Got ZHEX\n");
+    return GOT_HDR_HEX;
+  case ZBIN16:
+    DEBUGF("  >> READ_ESCAPED: Got ZBIN16\n");
+    return GOT_HDR_BIN16;
+  case ZBIN32:
+    DEBUGF("  >> READ_ESCAPED: Got ZBIN32\n");
+    return GOT_HDR_BIN32;
   default:
     if ((c & 0x60) == 0x40) {
       TRACEF("  >> READ_ESCAPED: Got escaped character: 0x%02x\n", (c ^ 0x40));
@@ -196,6 +208,9 @@ static ZRESULT recv_data_block(uint8_t *buf, uint16_t *len) {
     if (IS_ERROR(c)) {
       DEBUGF("  >> RECV_BLOCK: GOT ERROR: 0x%04x\n", c);
       return c;
+    } else if (IS_CTL(c)) {
+      DEBUGF("  >> RECV_BLOCK: GOT CONTROL (probably cancel): 0x%04x\n", c);
+      return c;
     } else {
       // Always add, even if frameend, as CRC takes that into account...
       buf[(*len)++] = ZVALUE(c);
@@ -210,24 +225,29 @@ static ZRESULT recv_data_block(uint8_t *buf, uint16_t *len) {
 }
 
 ZRESULT zm_read_data_block(uint8_t *buf, uint16_t *len) {
-  ZRESULT result = recv_data_block(buf, len);
+  const ZRESULT result = recv_data_block(buf, len);
+  ZRESULT crc_result;
   DEBUGF("  >> READ_BLOCK: Result of data block recv is [0x%04x] (got %d character(s))\n", result, *len);
 
-  if (IS_ERROR(result)) {
+  if (IS_ERROR(result) || IS_CTL(result)) {
     return result;
   } else {
     // CRC bytes are ZDLE escaped!
-    uint8_t crc1 = ((uint8_t)zm_read_escaped()) & 0xff;
-    if (IS_ERROR(crc1)) {
-      DEBUGF("  >> READ_BLOCK: Error while reading crc1: 0x%04x\n", crc1);
-      return crc1;
+    crc_result = zm_read_escaped();
+    if (IS_ERROR(crc_result)) {
+      DEBUGF("  >> READ_BLOCK: Error while reading crc1: 0x%04x\n", crc_result);
+      return crc_result;
     }
 
-    uint8_t crc2 = ((uint8_t)zm_read_escaped()) & 0xff;
-    if (IS_ERROR(crc2)) {
-      return crc2;
-      DEBUGF("  >> READ_BLOCK: Error while reading crc2: 0x%04x\n", crc2);
+    uint8_t crc1 = ((uint8_t)crc_result) & 0xff;
+
+    crc_result = zm_read_escaped();
+    if (IS_ERROR(crc_result)) {
+      return crc_result;
+      DEBUGF("  >> READ_BLOCK: Error while reading crc2: 0x%04x\n", crc_result);
     }
+
+    uint8_t crc2 = ((uint8_t)crc_result) & 0xff;
 
     uint16_t recv_crc = CRC(crc1, crc2);
     uint16_t calc_crc = zm_calc_data_crc(buf, *len);
@@ -274,37 +294,6 @@ ZRESULT zm_await(char *str, char *buf, int buf_size) {
       if (strcmp(str, buf) == 0) {
         DEBUGF("AWAIT: Target received; Await completed...\n");
         return OK;
-      }
-    }
-  }
-}
-
-ZRESULT zm_await_zdle() {
-  while (true) {
-    int c = zm_recv();
-
-    if (IS_ERROR(c)) {
-      DEBUGF("Got error :(\n");
-      return c;
-    } else {
-      switch (c) {
-      case ZPAD:
-      case ZPAD | 0200:
-        TRACEF("Got ZPAD...\n");
-        continue;
-      case ZDLE:
-        TRACEF("Got ZDLE\n");
-        return OK;
-      default:
-#ifdef ZDEBUG
-        DEBUGF("Got unknown (%08x)", c);
-        if (NONCONTROL(c)) {
-          DEBUGF(" [%c]\n", c);
-        } else {
-          DEBUGF("\n");
-        }
-#endif
-        continue;
       }
     }
   }
@@ -391,7 +380,7 @@ ZRESULT zm_read_binary16_header(ZHDR *hdr) {
         TRACEF("Won't update CRC for byte %d\n", i);
       }
 
-      DEBUGF("READ_BIN16: CRC after byte %d is 0x%04x\n", i, crc);
+      TRACEF("READ_BIN16: CRC after byte %d is 0x%04x\n", i, crc);
     }
   }
 
@@ -402,44 +391,57 @@ ZRESULT zm_read_binary16_header(ZHDR *hdr) {
 }
 
 ZRESULT zm_await_header(ZHDR *hdr) {
-  uint16_t result;
+  DEBUGF(">> ZM_AWAIT_HEADER\n");
 
-  if (zm_await_zdle() == OK) {
-    DEBUGF("Got ZDLE, awaiting type...\n");
-    char frame_type = zm_recv();
+  while (true) {
+    uint16_t result = zm_read_escaped();
 
-    switch (frame_type) {
-    case ZHEX:
-      DEBUGF("Reading HEX header\n");
-      result = zm_read_hex_header(hdr);
+    if (IS_ERROR(result)) {
+      DEBUGF("ZM_AWAIT_HEADER: Error while reading escaped 0x%04x...\n", result);
+      return result;
+    } else if (IS_CTL(result)) {
+      DEBUGF("ZM_AWAIT_HEADER: Control received while waiting; probably cancelled...\n");
+      return result;
+    } else {
+      switch (result) {
+      case ZPAD:
+        DEBUGF("Got ZPAD while waiting for header; Skipping...\n");
+        continue;
 
-      if (result == OK) {
-        DEBUGF("Got valid header\n");
-        return zm_read_crlf();
-      } else {
-        DEBUGF("Didn't get valid header [0x%02x]\n", result);
-        return result;
+      case GOT_HDR_HEX:
+        DEBUGF("ZM_AWAIT_HEADER: Reading HEX header\n");
+        result = zm_read_hex_header(hdr);
+
+        if (result == OK) {
+          DEBUGF("ZM_AWAIT_HEADER: Got valid header\n");
+          return zm_read_crlf();
+        } else {
+          DEBUGF("ZM_AWAIT_HEADER: Didn't get valid header [0x%02x]\n", result);
+          return result;
+        }
+
+      case GOT_HDR_BIN16:
+        DEBUGF("ZM_AWAIT_HEADER: Reading BIN16 header\n");
+        result = zm_read_binary16_header(hdr);
+
+        if (result == OK) {
+          DEBUGF("ZM_AWAIT_HEADER: Got valid header\n");
+          return OK;
+        } else {
+          DEBUGF("ZM_AWAIT_HEADER: Didn't get valid header [0x%02x]\n", result);
+          return result;
+        }
+
+      case GOT_HDR_BIN32:
+        DEBUGF("ZM_AWAIT_HEADER: Cannot handle 32-bit CRC frames yet\n");
+        return UNSUPPORTED;
+
+      default:
+        DEBUGF("ZM_AWAIT_HEADER: Got bad frame type 0x%02x\n", ZVALUE(result));
+        return BAD_FRAME_TYPE;
+//        continue;
       }
-    case ZBIN16:
-      DEBUGF("Reading BIN16 header\n");
-      result = zm_read_binary16_header(hdr);
-
-      if (result == OK) {
-        DEBUGF("Got valid header\n");
-        return OK;
-      } else {
-        DEBUGF("Didn't get valid header [0x%02x]\n", result);
-        return result;
-      }
-    case ZBIN32:
-      DEBUGF("Cannot handle frame type '%c' :(\n", frame_type);
-      return UNSUPPORTED;
-    default:
-      DEBUGF("Got bad frame type '%c'\n", frame_type);
-      return BAD_FRAME_TYPE;
     }
-  } else {
-    return CLOSED;
   }
 }
 
@@ -457,10 +459,79 @@ ZRESULT zm_send_sz(uint8_t *data) {
   return OK;
 }
 
-ZRESULT zm_send_hex_hdr(uint8_t *buf) {
+static uint8_t *last_sent_buf = NULL;
+
+static ZRESULT zm_send_hex_hdr(uint8_t *buf) {
   zm_send(ZPAD);
   zm_send(ZPAD);
   zm_send(ZDLE);
 
-  return zm_send_sz(buf);
+  return zm_send_sz(last_sent_buf = buf);
+}
+
+ZRESULT zm_send_hdr(ZHDR *hdr) {
+  static uint8_t buf[HEX_HDR_STR_LEN + 1];
+
+  DEBUGF(">> SEND HEADER\n");
+  DEBUG_DUMPHDR(hdr);
+
+  buf[HEX_HDR_STR_LEN] = 0;
+  zm_calc_hdr_crc(hdr);
+
+  ZRESULT result = zm_to_hex_header(hdr, buf, HEX_HDR_STR_LEN);
+
+  if (IS_ERROR(result) || ZVALUE(result) != HEX_HDR_STR_LEN) {
+    DEBUGF("ZM_SEND_HDR: Failed to hex-encode header: 0x%04x\n", result);
+    return result;
+  } else {
+    return zm_send_hex_hdr(buf);
+  }
+}
+
+ZRESULT zm_send_hdr_flags(uint8_t type, uint8_t f0, uint8_t f1, uint8_t f2, uint8_t f3) {
+  ZHDR hdr = {
+      .type = type,
+      .flags = {
+          .f0 = f0,
+          .f1 = f1,
+          .f2 = f2,
+          .f3 = f3
+      }
+  };
+
+  return zm_send_hdr(&hdr);
+}
+
+ZRESULT zm_send_hdr_pos(uint8_t type, uint8_t p0, uint8_t p1, uint8_t p2, uint8_t p3) {
+  ZHDR hdr = {
+      .type = type,
+      .position = {
+          .p0 = p0,
+          .p1 = p1,
+          .p2 = p2,
+          .p3 = p3
+      }
+  };
+
+  return zm_send_hdr(&hdr);
+}
+
+ZRESULT zm_send_hdr_pos32(uint8_t type, uint32_t pos) {
+  ZHDR hdr = {
+      .type = type,
+  };
+
+  *((uint32_t*)&hdr.position) = pos;
+
+  return zm_send_hdr(&hdr);
+}
+
+
+
+ZRESULT zm_resend_last_header() {
+  if (last_sent_buf) {
+    return zm_send_sz(last_sent_buf);
+  } else {
+    return NO_DATA;
+  }
 }

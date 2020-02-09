@@ -14,6 +14,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -33,7 +34,12 @@ ZRESULT zm_recv() {
   if (result == EOF) {
     return CLOSED;
   } else {
-    return result;
+    int rnd = rand();
+    if (rnd < RAND_MAX / 1000) {
+      return rnd % 255;
+    } else {
+      return result;
+    }
   }
 }
 
@@ -105,7 +111,7 @@ int main() {
           case ZEOF:
             DEBUGF("Is ZRQINIT or ZEOF\n");
 
-            result = zm_send_hex_hdr(zrinit_buf);
+            result = zm_send_hdr(&hdr_zrinit);
 
             if (result == OK) {
               DEBUGF("Send ZRINIT was OK\n");
@@ -119,7 +125,7 @@ int main() {
           case ZFIN:
             DEBUGF("Is ZFIN\n");
 
-            result = zm_send_hex_hdr(zfin_buf);
+            result = zm_send_hdr(&hdr_zfin);
 
             if (result == OK) {
               DEBUGF("Send ZFIN was OK\n");
@@ -152,7 +158,7 @@ int main() {
             result = zm_read_data_block(data_buf, &count);
             DEBUGF("Result of data block read is [0x%04x] (got %d character(s))\n", result, count);
 
-            if (!IS_ERROR(result)) {
+            if (!IS_ERROR(result) && result == GOT_CRCW) {
               PRINTF("Receiving file: '%s'\n", data_buf);
 
               out = fopen((char*)data_buf, "wb");
@@ -161,7 +167,7 @@ int main() {
                 goto cleanup;
               }
 
-              result = zm_send_hex_hdr(zrpos_buf);
+              result = zm_send_hdr(&hdr_zrpos);
 
               if (result == OK) {
                 DEBUGF("Send ZRPOS was OK\n");
@@ -169,11 +175,19 @@ int main() {
                 FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
                 goto cleanup;
               }
+            } else {
+              DEBUGF("Error receiving ZFILE data block (0x%04x); Sending ZRINIT\n", result);
+              zm_send_hdr(&hdr_zrinit);
             }
 
             // TODO care about XON that will follow?
 
             continue;
+
+          case ZNAK:
+            DEBUGF("FATAL: Don't know what to do with a ZNAK...");
+            zm_send_hdr_pos32(ZABORT, 0);
+            goto cleanup;
 
           case ZDATA:
             DEBUGF("Is ZDATA\n");
@@ -183,16 +197,16 @@ int main() {
               result = zm_read_data_block(data_buf, &count);
               DEBUGF("Result of data block read is [0x%04x] (got %d character(s))\n", result, count);
 
-              received_data_size += (count - 1);
-              if (out != NULL) {
-                fwrite(data_buf, count - 1, 1, out);
-              } else {
-                FPRINTF(stderr, "Received data before open file; Bailing...\n");
-                goto cleanup;
-              }
-
               if (!IS_ERROR(result)) {
+
                 DEBUGF("Received %d byte(s) of data\n", count);
+                received_data_size += (count - 1);
+                if (out != NULL) {
+                  fwrite(data_buf, count - 1, 1, out);
+                } else {
+                  FPRINTF(stderr, "Received data before open file; Bailing...\n");
+                  goto cleanup;
+                }
 
                 if (result == GOT_CRCE) {
                   // End of frame, header follows, no ZACK expected.
@@ -206,7 +220,7 @@ int main() {
                   // Frame continues, ACK required
                   DEBUGF("Got CRCQ; Frame continues [ACK]\n");
 
-                  result = zm_send_hex_hdr(zack_buf);
+                  result = zm_send_hdr_pos32(ZACK, received_data_size);
 
                   if (result == OK) {
                     DEBUGF("Send ZACK was OK\n");
@@ -220,7 +234,7 @@ int main() {
                   // End of frame, header follows, ZACK expected.
                   DEBUGF("Got CRCW; Frame done [ACK]\n");
 
-                  result = zm_send_hex_hdr(zack_buf);
+                  result = zm_send_hdr_pos32(ZACK, received_data_size);
 
                   if (result == OK) {
                     DEBUGF("Send ZACK was OK\n");
@@ -232,48 +246,57 @@ int main() {
                   break;
                 }
 
-              } else {
-                DEBUGF("Error while receiving block: 0x%04x\n", result);
+              } else if (result == CORRUPTED || result == BAD_CRC || result == BAD_ESCAPE) {
+                DEBUGF("Bad CRC while receiving block: 0x%04x\n", result);
 
-                result = zm_send_hex_hdr(znak_buf);
+                result = zm_send_hdr_pos32(ZRPOS, received_data_size);
 
                 if (result == OK) {
-                  DEBUGF("Send ZNACK was OK\n");
+                  DEBUGF("Send ZRPOS was OK\n");
                 } else if(result == CLOSED) {
                   FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
                   goto cleanup;
                 }
+
+                DEBUGF("NOTICE:: Continuing data block loop after error!!!\n");
+
+                continue;
+
+              } else {
+                DEBUGF("FATAL: Error 0x%04x while receiving block; Bailing...\n", result);
+                goto cleanup;
               }
             }
 
-            continue;
+            break;
 
           default:
             FPRINTF(stderr, "WARN: Ignoring unknown header type 0x%02x\n", hdr.type);
-            continue;
+            DEBUGF("FATAL: Dying\n");
+            goto cleanup;
+            //continue;
           }
 
           break;
+
+        case CANCELLED:
+          DEBUGF("Cancelled by remote; Bailing...\n");
+          goto cleanup;
+
         case BAD_CRC:
+          DEBUGF("BADCRC\n");
+          goto zrpos;
+        case BAD_FRAME_TYPE:
+          DEBUGF("BADFRAME\n");
+          goto zrpos;
+        default:
+          zrpos:
           DEBUGF("Didn't get valid header - CRC Check failed\n");
 
-          result = zm_send_hex_hdr(znak_buf);
+          result = zm_send_hdr_pos32(ZRPOS, received_data_size);
 
           if (result == OK) {
-            DEBUGF("Send ZNACK was OK\n");
-          } else if(result == CLOSED) {
-            FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
-            goto cleanup;
-          }
-
-          continue;
-        default:
-          DEBUGF("Didn't get valid header - result is 0x%04x\n", result);
-
-          result = zm_send_hex_hdr(znak_buf);
-
-          if (result == OK) {
-            DEBUGF("Send ZNACK was OK\n");
+            DEBUGF("Send ZRPOS was OK\n");
           } else if(result == CLOSED) {
             FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
             goto cleanup;
@@ -286,6 +309,8 @@ int main() {
 
     cleanup:
     
+    DEBUGF("Cleaning up...\n");
+
     if (out != NULL && fclose(out)) {
       FPRINTF(stderr, "Failed to close output file\n");
     }

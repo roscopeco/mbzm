@@ -87,11 +87,24 @@ extern "C" {
 
 // ZRESULT codes - Non-errors
 #define OK                0x0100        /* Generic return code for "all is well"            */
-#define FIN               0x0200        /* ORe with < 0xff to indicate a return condition   */
+#define FIN               0x0200        /* OR with <= 0xff to indicate a data block end     */
+#define HDR               0x0400        /* OR with <= 0xff to indicate a header type        */
+#define CTL               0x0800        /* OR with <= 0xff to indicate a control result     */
+
+// FIN results
 #define GOT_CRCE          (FIN | ZCRCE) /* CRC follows, end of frame, header is next        */
 #define GOT_CRCG          (FIN | ZCRCG) /* CRC follows, frame continues (non-stop)          */
 #define GOT_CRCQ          (FIN | ZCRCQ) /* CRC follows, frame continues, ZACK expected      */
 #define GOT_CRCW          (FIN | ZCRCW) /* CRC follows, end of frame, ZACK expected         */
+
+// HDR results
+#define GOT_HDR_BIN16     (HDR | ZBIN16)/* Binary header with 16-bit CRC follows            */
+#define GOT_HDR_HEX       (HDR | ZHEX)  /* Hex header follows                               */
+#define GOT_HDR_BIN32     (HDR | ZBIN32)/* Binary header with 32-bit CRC follows            */
+
+// CTL results
+#define CANCELLED         (CTL | CAN)   /* 5 CANs received                                  */
+#define TIMEOUT           (CTL | 'Z')   /* TIMEOUT                                          */
 
 // ZRESULT codes - Errors
 #define BAD_DIGIT         0x1000        /* Bad digit when converting from hex               */
@@ -102,13 +115,17 @@ extern "C" {
 #define BAD_CRC           0x6000        /* Header did not match CRC (probably noise)        */
 #define OUT_OF_RANGE      0x7000        /* Conversion attempted for out-of-range number     */
 #define OUT_OF_SPACE      0x8000        /* Supplied buffer is not big enough                */
-#define CANCELLED         0x9000        /* 5x CAN received                                  */
 #define BAD_ESCAPE        0xa000        /* Bad escape sequence                              */
+#define NO_DATA           0xb000        /* No data (resend last header)                     */
 #define UNSUPPORTED       0xf000        /* Attempted to use an unsupported protocol feature */
 
 #define ERROR_CODE(x)     (x & ERROR_MASK)
 #define IS_ERROR(x)       ((bool)(ERROR_CODE((x)) != 0))
+#define IS_OK(x)          ((bool)((x & OK) == OK))
 #define IS_FIN(x)         ((bool)((x & FIN) == FIN))
+#define IS_HDR(x)         ((bool)((x & HDR) == HDR))
+#define IS_CTL(x)         ((bool)((x & CTL) == CTL))
+
 #define ZVALUE(x)         ((uint8_t)(x & 0xff))
 
 // Nybble to byte / byte to word / vice-versa

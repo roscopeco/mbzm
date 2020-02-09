@@ -74,7 +74,13 @@ ZRESULT zm_send_sz(uint8_t *data);
 /*
  * Send the given header as hex, with ZPAD/ZDLE preamble.
  */
-ZRESULT zm_send_hex_hdr(uint8_t *buf);
+ZRESULT zm_send_hdr(ZHDR *hdr);
+
+ZRESULT zm_send_hdr_flags(uint8_t type, uint8_t f0, uint8_t f1, uint8_t f2, uint8_t f3);
+ZRESULT zm_send_hdr_pos(uint8_t type, uint8_t p0, uint8_t p1, uint8_t p2, uint8_t p3);
+ZRESULT zm_send_hdr_pos32(uint8_t type, uint32_t pos);
+
+ZRESULT zm_resend_last_header();
 
 #ifdef __cplusplus
 }

@@ -47,9 +47,6 @@ uint32_t zm_calc_data_crc32(uint8_t *buf, uint16_t len) {
 }
 
 ZRESULT zm_to_hex_header(ZHDR *hdr, uint8_t *buf, int max_len) {
-  DEBUGF("Converting header to hex; Dump is:\n");
-  DEBUG_DUMPHDR(hdr);
-
   if (max_len < HEX_HDR_STR_LEN) {
     return OUT_OF_SPACE;
   } else {

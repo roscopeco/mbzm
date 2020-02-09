@@ -49,7 +49,7 @@ ZRESULT zm_check_header_crc16(ZHDR *hdr, uint16_t crc);
 
 #ifdef ZDEBUG
 /* this is wasteful, but only if debugging is on, so, y'know... */
-static char *__hdrtypes[] __attribute__((unused)) = {
+static char const *__hdrtypes[] __attribute__((unused)) = {
     "ZRQINIT", "ZRINIT",     "ZSINIT",     "ZACK",
     "ZFILE",   "ZSKIP",      "ZNAK",       "ZABORT",
     "ZFIN",    "ZRPOS",      "ZDATA",      "ZEOF",
@@ -58,8 +58,10 @@ static char *__hdrtypes[] __attribute__((unused)) = {
 };
 
 #define DEBUG_DUMPHDR_F(hdr)                    \
-  DEBUGF("DEBUG: Header read [%s]:\n",          \
-      __hdrtypes[hdr->type]);                   \
+  DEBUGF("DEBUG: Header dump [%s]:\n",          \
+      (hdr->type < 20 ?                         \
+          __hdrtypes[hdr->type] :               \
+          "<INVALID>"));                        \
   DEBUGF("  type: 0x%02x\n", hdr->type);        \
   DEBUGF("    f0: 0x%02x\n", hdr->flags.f0);    \
   DEBUGF("    f1: 0x%02x\n", hdr->flags.f1);    \
@@ -71,8 +73,10 @@ static char *__hdrtypes[] __attribute__((unused)) = {
   DEBUGF("\n");
 
 #define DEBUG_DUMPHDR_P(hdr)                    \
-  DEBUGF("DEBUG: Header read [%s]:\n",          \
-      __hdrtypes[hdr->type]);                   \
+  DEBUGF("DEBUG: Header dump [%s]:\n",          \
+      (hdr->type < 20 ?                         \
+          __hdrtypes[hdr->type] :               \
+          "<INVALID>"));                        \
   DEBUGF("  type: 0x%02x\n", hdr->type);        \
   DEBUGF("    p0: 0x%02x\n", hdr->position.p0); \
   DEBUGF("    p1: 0x%02x\n", hdr->position.p1); \
