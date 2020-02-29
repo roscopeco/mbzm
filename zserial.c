@@ -528,7 +528,11 @@ ZRESULT zm_send_hdr_pos32(uint8_t type, uint32_t pos) {
       .type = type,
   };
 
-  *((uint32_t*)&hdr.position) = pos;
+  //*((uint32_t*)&hdr.position) = pos;
+  hdr.position.p3 = (pos & 0x000000ff);
+  hdr.position.p2 = (pos & 0x0000ff00) >> 8;
+  hdr.position.p1 = (pos & 0x00ff0000) >> 16;
+  hdr.position.p0 = (pos & 0xff000000) >> 24;
 
   return zm_send_hdr(&hdr);
 }
