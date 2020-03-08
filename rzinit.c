@@ -31,12 +31,10 @@ static ZHDR hdr_zrinit = {
   .type = ZRINIT,
   .flags = {
       .f0 = 0, //CANOVIO | CANFC32 | CANFDX,
-      .f1 = 0
+      .f1 = 0,
+      .f2 = 0,
+      .f3 = 0
   },
-  .position = {
-      .p0 = 0x00,
-      .p1 = 0x00
-  }
 };
 
 static ZHDR hdr_znak = {
