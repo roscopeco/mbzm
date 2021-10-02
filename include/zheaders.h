@@ -46,6 +46,7 @@ uint32_t zm_calc_data_crc32(uint8_t *buf, uint16_t len);
 ZRESULT zm_to_hex_header(ZHDR *hdr, uint8_t *buf, int max_len);
 
 ZRESULT zm_check_header_crc16(ZHDR *hdr, uint16_t crc);
+ZRESULT zm_check_header_crc32(ZHDR *hdr, uint32_t crc);
 
 #ifdef ZDEBUG
 /* this is wasteful, but only if debugging is on, so, y'know... */
@@ -58,7 +59,7 @@ static char *__hdrtypes[] __attribute__((unused)) = {
 };
 
 #define DEBUG_DUMPHDR_F(hdr)                    \
-  DEBUGF("DEBUG: Header read [%s]:\n",          \
+  DEBUGF("DEBUG: Header type [%s]:\n",          \
       __hdrtypes[hdr->type]);                   \
   DEBUGF("  type: 0x%02x\n", hdr->type);        \
   DEBUGF("    f0: 0x%02x\n", hdr->flags.f0);    \
@@ -71,7 +72,7 @@ static char *__hdrtypes[] __attribute__((unused)) = {
   DEBUGF("\n");
 
 #define DEBUG_DUMPHDR_P(hdr)                    \
-  DEBUGF("DEBUG: Header read [%s]:\n",          \
+  DEBUGF("DEBUG: Header type [%s]:\n",          \
       __hdrtypes[hdr->type]);                   \
   DEBUGF("  type: 0x%02x\n", hdr->type);        \
   DEBUGF("    p0: 0x%02x\n", hdr->position.p0); \
@@ -81,6 +82,21 @@ static char *__hdrtypes[] __attribute__((unused)) = {
   DEBUGF("  crc1: 0x%02x\n", hdr->crc1);        \
   DEBUGF("  crc2: 0x%02x\n", hdr->crc2);        \
   DEBUGF("   RES: 0x%02x\n", hdr->PADDING);     \
+  DEBUGF("\n");
+
+#define DEBUG_DUMPHDR_R(hdr)                       \
+  DEBUGF("DEBUG: Header received  [%s]:\n",        \
+      __hdrtypes[hdr->type]);                      \
+  DEBUGF("  type: 0x%02x\n", hdr->type);           \
+  DEBUGF("    p0/f3: 0x%02x\n", hdr->position.p0); \
+  DEBUGF("    p1/f2: 0x%02x\n", hdr->position.p1); \
+  DEBUGF("    p2/f1: 0x%02x\n", hdr->position.p2); \
+  DEBUGF("    p3/f0: 0x%02x\n", hdr->position.p3); \
+  DEBUGF("  crc1: 0x%02x\n", hdr->crc1);           \
+  DEBUGF("  crc2: 0x%02x\n", hdr->crc2);           \
+  DEBUGF("  crc3: 0x%02x\n", hdr->crc3);           \
+  DEBUGF("  crc4: 0x%02x\n", hdr->crc4);           \
+  DEBUGF("   RES: 0x%02x\n", hdr->PADDING);        \
   DEBUGF("\n");
 
 #define DEBUG_DUMPHDR   DEBUG_DUMPHDR_F

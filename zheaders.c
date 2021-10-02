@@ -19,14 +19,15 @@
 
 #include "zheaders.h"
 #include "znumbers.h"
-#include "checksum.h"
+#include "crc16.h"
+#include "crc32.h"
 
 void zm_calc_hdr_crc(ZHDR *hdr) {
-  uint16_t crc = update_crc_ccitt(CRC_START_XMODEM, hdr->type);
-  crc = update_crc_ccitt(crc, hdr->flags.f3);
-  crc = update_crc_ccitt(crc, hdr->flags.f2);
-  crc = update_crc_ccitt(crc, hdr->flags.f1);
-  crc = update_crc_ccitt(crc, hdr->flags.f0);
+  uint16_t crc = ucrc16(hdr->type, CRC_START_XMODEM);
+  crc = ucrc16(hdr->flags.f3, crc);
+  crc = ucrc16(hdr->flags.f2, crc);
+  crc = ucrc16(hdr->flags.f1, crc);
+  crc = ucrc16(hdr->flags.f0, crc);
 
   hdr->crc1 = CRC_MSB(crc);
   hdr->crc2 = CRC_LSB(crc);
@@ -36,20 +37,17 @@ uint16_t zm_calc_data_crc(uint8_t *buf, uint16_t len) {
   uint16_t crc = CRC_START_XMODEM;
 
   for (int i = 0; i < len; i++) {
-    crc = update_crc_ccitt(crc, buf[i]);
+    crc = ucrc16(buf[i], crc);
   }
 
   return crc;
 }
 
 uint32_t zm_calc_data_crc32(uint8_t *buf, uint16_t len) {
-  return crc_32(buf, len);
+  return crc32((char*)buf, len);
 }
 
 ZRESULT zm_to_hex_header(ZHDR *hdr, uint8_t *buf, int max_len) {
-  DEBUGF("Converting header to hex; Dump is:\n");
-  DEBUG_DUMPHDR(hdr);
-
   if (max_len < HEX_HDR_STR_LEN) {
     return OUT_OF_SPACE;
   } else {
@@ -78,6 +76,14 @@ ZRESULT zm_to_hex_header(ZHDR *hdr, uint8_t *buf, int max_len) {
 
 ZRESULT zm_check_header_crc16(ZHDR *hdr, uint16_t crc) {
   if (CRC(hdr->crc1, hdr->crc2)  == crc) {
+    return OK;
+  } else {
+    return BAD_CRC;
+  }
+}
+
+ZRESULT zm_check_header_crc32(ZHDR *hdr, uint32_t crc) {
+  if (CRC32(hdr->crc1, hdr->crc2, hdr->crc3, hdr->crc4)  == crc) {
     return OK;
   } else {
     return BAD_CRC;

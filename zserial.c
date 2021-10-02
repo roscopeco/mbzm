@@ -26,10 +26,14 @@
 #include "zserial.h"
 #include "zheaders.h"
 #include "znumbers.h"
-#include "checksum.h"
+
+#include "crc16.h"
+#include "crc32.h"
+
+static uint8_t in_32bit_block = 0;
 
 ZRESULT zm_read_crlf() {
-  uint16_t c = zm_recv();
+  uint16_t c = zm_read_escaped();//zm_recv();
 
   if (IS_ERROR(c)) {
     DEBUGF("CRLF: Got error on first character: 0x%04x\n", c);
@@ -39,7 +43,7 @@ ZRESULT zm_read_crlf() {
     return OK;
   } else if (c == CR || c == (CR | 0x80)) {
     TRACEF("CRLF: Got CR on first character, await LF\n");
-    c = zm_recv();
+    c = zm_read_escaped(); //zm_recv();
 
     if (IS_ERROR(c)) {
       return c;
@@ -80,7 +84,13 @@ ZRESULT zm_read_escaped() {
 
     // Return immediately if non-control character or error
     if (NONCONTROL(c) || IS_ERROR(c)) {
-      return c;
+      if (IS_ERROR(c)) {
+        TRACEF("  >> READ_ESCAPED: IS ERROR: [0x%04x]\n", c);
+        return c;
+      } else {
+        TRACEF("  >> READ_ESCAPED: Normal  : [0x%02x]\n", ZVALUE(c));
+        return c;
+      }
     }
 
     switch (c) {
@@ -88,13 +98,13 @@ ZRESULT zm_read_escaped() {
     case XON | 0x80:
     case XOFF:
     case XOFF | 0x80:
+      TRACEF("  >> READ_ESCAPED: Skipped XON/XOFF\n");
       continue;
     case ZDLE:
       TRACEF("  >> READ_ESCAPED: Got ZDLE\n");
       goto gotzdle;
     default:
-      // TODO support control escaping?
-      TRACEF("  >> READ_ESCAPED: Got 0x%02x [%c]\n", c, c & 0xff);
+      TRACEF("  >> READ_ESCAPED: Control  : 0x%02x [%c]\n", c, ZVALUE(c));
       return c;
     }
   }
@@ -160,7 +170,7 @@ ZRESULT zm_read_escaped() {
 
   switch (c) {
   case CAN:
-    DEBUGF("  >> READ_ESCAPED: Got five CANs!\n");
+    DEBUGF("  >> READ_ESCAPED: Got five CANs\n");
     return CANCELLED;
   case ZCRCE:
     DEBUGF("  >> READ_ESCAPED: Got ZCRCE\n");
@@ -174,6 +184,12 @@ ZRESULT zm_read_escaped() {
   case ZCRCW:
     DEBUGF("  >> READ_ESCAPED: Got ZCRCW\n");
     return GOT_CRCW;
+  case ZRUB0:
+    DEBUGF("  >> READ_ESCAPED: Got ZRUB0\n");
+    return 0x7f;
+  case ZRUB1:
+    DEBUGF("  >> READ_ESCAPED: Got ZRUB1\n");
+    return 0xff;
   default:
     if ((c & 0x60) == 0x40) {
       TRACEF("  >> READ_ESCAPED: Got escaped character: 0x%02x\n", (c ^ 0x40));
@@ -181,7 +197,7 @@ ZRESULT zm_read_escaped() {
     }
   }
 
-  DEBUGF("  >> READ_ESCAPED: Got bad control character 0x%02x", (c & 0xff));
+  DEBUGF("  >> READ_ESCAPED: Got bad control character 0x%02x", ZVALUE(c));
   return BAD_ESCAPE;
 }
 
@@ -210,6 +226,7 @@ static ZRESULT recv_data_block(uint8_t *buf, uint16_t *len) {
 }
 
 ZRESULT zm_read_data_block(uint8_t *buf, uint16_t *len) {
+  DEBUGF("  >> READ_BLOCK: Reading %d-bit block\n", in_32bit_block ? 32 : 16);
   ZRESULT result = recv_data_block(buf, len);
   DEBUGF("  >> READ_BLOCK: Result of data block recv is [0x%04x] (got %d character(s))\n", result, *len);
 
@@ -217,26 +234,54 @@ ZRESULT zm_read_data_block(uint8_t *buf, uint16_t *len) {
     return result;
   } else {
     // CRC bytes are ZDLE escaped!
-    uint8_t crc1 = ((uint8_t)zm_read_escaped()) & 0xff;
+    ZRESULT crc1 = zm_read_escaped();
     if (IS_ERROR(crc1)) {
       DEBUGF("  >> READ_BLOCK: Error while reading crc1: 0x%04x\n", crc1);
       return crc1;
     }
 
-    uint8_t crc2 = ((uint8_t)zm_read_escaped()) & 0xff;
+    ZRESULT crc2 = zm_read_escaped();
     if (IS_ERROR(crc2)) {
       return crc2;
       DEBUGF("  >> READ_BLOCK: Error while reading crc2: 0x%04x\n", crc2);
     }
 
-    uint16_t recv_crc = CRC(crc1, crc2);
-    uint16_t calc_crc = zm_calc_data_crc(buf, *len);
+    if (in_32bit_block) {
+      ZRESULT crc3 = zm_read_escaped();
+      if (IS_ERROR(crc2)) {
+        return crc2;
+        DEBUGF("  >> READ_BLOCK: Error while reading crc3: 0x%04x\n", crc2);
+      }
 
-    if (recv_crc == calc_crc) {
-      return result;
+      ZRESULT crc4 = zm_read_escaped();
+      if (IS_ERROR(crc2)) {
+        return crc2;
+        DEBUGF("  >> READ_BLOCK: Error while reading crc4: 0x%04x\n", crc2);
+      }
+
+      DEBUGF("  >> READ_BLOCK: Calculate CRC32 for block len: %d\n", *len);
+      uint32_t recv_crc = CRC32(ZVALUE(crc1), ZVALUE(crc2), ZVALUE(crc3), ZVALUE(crc4));
+      uint32_t calc_crc = zm_calc_data_crc32(buf, *len);
+
+      if (recv_crc == calc_crc) {
+        DEBUGF("  >> READ_BLOCK: CRC32 is good (recv: 0x%08x; calc: 0x%08x)\n", recv_crc, calc_crc);
+        return result;
+      } else {
+        DEBUGF("  >> READ_BLOCK: CRC32 is borked (recv: 0x%08x; calc: 0x%08x)\n", recv_crc, calc_crc);
+        return BAD_CRC;
+      }
     } else {
-      DEBUGF("  >> READ_BLOCK: CRC is borked (recv: 0x%04x; calc: 0x%04x)\n", recv_crc, calc_crc);
-      return BAD_CRC;
+      DEBUGF("  >> READ_BLOCK: Calculate CRC16 for block len: %d\n", *len);
+      uint16_t recv_crc = CRC(ZVALUE(crc1), ZVALUE(crc2));
+      uint16_t calc_crc = zm_calc_data_crc(buf, *len);
+
+      if (recv_crc == calc_crc) {
+        DEBUGF("  >> READ_BLOCK: CRC is good (recv: 0x%04x; calc: 0x%04x)\n", recv_crc, calc_crc);
+        return result;
+      } else {
+        DEBUGF("  >> READ_BLOCK: CRC is borked (recv: 0x%04x; calc: 0x%04x)\n", recv_crc, calc_crc);
+        return BAD_CRC;
+      }
     }
   }
 }
@@ -247,7 +292,7 @@ ZRESULT zm_await(char *str, char *buf, int buf_size) {
   int ptr = 0;
 
   while(true) {
-    int c = zm_recv();
+    ZRESULT c = zm_read_escaped();
 
     if (IS_ERROR(c)) {
       return c;
@@ -257,15 +302,15 @@ ZRESULT zm_await(char *str, char *buf, int buf_size) {
         for (int i = 0; i < buf_size - 2; i++) {
           buf[i] = buf[i+1];
         }
-        buf[buf_size - 2] = c;
+        buf[buf_size - 2] = ZVALUE(c);
       } else {
-        buf[ptr++] = c;
+        buf[ptr++] = ZVALUE(c);
       }
 
 #ifdef ZTRACE
       TRACEF("Buf is [");
       for (int i = 0; i < buf_size; i++) {
-        TRACEF("%02x ", buf[i]);
+        TRACEF("%02x ", (buf[i] & 0xFF));
       }
       TRACEF("]\n");
 #endif
@@ -295,13 +340,17 @@ ZRESULT zm_await_zdle() {
       case ZDLE:
         TRACEF("Got ZDLE\n");
         return OK;
+      case XON:
+      case XOFF:
+        TRACEF("Got XON/XOFF\n");
+        continue;
       default:
 #ifdef ZDEBUG
-        DEBUGF("Got unknown (%08x)", c);
+        DEBUGF("Got unknown (0x%02x)", c);
         if (NONCONTROL(c)) {
           DEBUGF(" [%c]\n", c);
         } else {
-          DEBUGF("\n");
+          DEBUGF(" [CTL]\n");
         }
 #endif
         continue;
@@ -315,9 +364,12 @@ ZRESULT zm_read_hex_header(ZHDR *hdr) {
   memset(hdr, 0xc0, sizeof(ZHDR));
   uint16_t crc = CRC_START_XMODEM;
 
+  // Set flag that next block will be CRC16
+  in_32bit_block = 0;
+
   // TODO maybe don't treat header as a stream of bytes, which would remove
   //      the need to have the all-byte layout in ZHDR struct...
-  for (int i = 0; i < ZHDR_SIZE; i++) {
+  for (int i = 0; i < ZHDR_SIZE - 2; i++) {
     // TODO use read_hex_byte here...
     uint16_t c1 = zm_recv();
 
@@ -328,7 +380,7 @@ ZRESULT zm_read_hex_header(ZHDR *hdr) {
       DEBUGF("READ_HEX: Character %d/1 is EOF\n", i);
       return CLOSED;
     } else {
-      TRACEF("READ_HEX: Character %d/1 is good: 0x%02x\n", i, c1);
+      TRACEF("READ_HEX: Character %d/1 is good: 0x%04x\n", i, c1);
       uint16_t c2 = zm_recv();
 
       if (IS_ERROR(c2)) {
@@ -338,7 +390,7 @@ ZRESULT zm_read_hex_header(ZHDR *hdr) {
         DEBUGF("READ_HEX: Character %d/2 is EOF\n", i);
         return CLOSED;
       } else {
-        TRACEF("READ_HEX: Character %d/2 is good: 0x%02x\n", i, c2);
+        TRACEF("READ_HEX: Character %d/2 is good: 0x%04x\n", i, c2);
         uint16_t b = zm_hex_to_byte(c1,c2);
 
         if (IS_ERROR(b)) {
@@ -346,12 +398,12 @@ ZRESULT zm_read_hex_header(ZHDR *hdr) {
           return b;
         } else {
           TRACEF("READ_HEX: Byte %d is good: 0x%02x\n", i, b);
-          TRACEF("Byte %d; hdr at 0x%0lx; ptr at 0x%0lx\n", i, (uint64_t)hdr, (uint64_t)ptr);
+          TRACEF("Byte %d; hdr at 0x%0llx; ptr at 0x%0llx\n", i, (uint64_t)hdr, (uint64_t)ptr);
           *ptr++ = (uint8_t)b;
 
-          if (i < ZHDR_SIZE - 2) {
+          if (i < ZHDR_SIZE - 4) {
             TRACEF("Will update CRC for byte %d\n", i);
-            crc = update_crc_ccitt(crc, b);
+            crc = ucrc16(b, crc);
           } else {
             TRACEF("Won't update CRC for byte %d\n", i);
           }
@@ -362,7 +414,8 @@ ZRESULT zm_read_hex_header(ZHDR *hdr) {
     }
   }
 
-  DEBUG_DUMPHDR(hdr);
+  DEBUGF("Received header; Dump is:\n");
+  DEBUG_DUMPHDR_R(hdr);
 
   DEBUGF("READ_HEX: All read; check CRC (Received: 0x%04x; Computed: 0x%04x)\n", CRC(hdr->crc1, hdr->crc2), crc);
   return zm_check_header_crc16(hdr, crc);
@@ -373,20 +426,23 @@ ZRESULT zm_read_binary16_header(ZHDR *hdr) {
   memset(hdr, 0xc0, sizeof(ZHDR));
   uint16_t crc = CRC_START_XMODEM;
 
-  for (int i = 0; i < ZHDR_SIZE; i++) {
-    uint16_t b = zm_recv();
+  // Set flag that next block will be CRC16
+  in_32bit_block = 0;
+
+  for (int i = 0; i < ZHDR_SIZE - 2; i++) {
+    uint16_t b = zm_read_escaped();
 
     if (IS_ERROR(b)) {
       DEBUGF("READ_BIN16: Character %d/1 is error: 0x%04x\n", i, b);
       return b;
     } else {
-      TRACEF("READ_BIN16: Byte %d is good: 0x%02x\n", i, b);
-      TRACEF("Byte %d; hdr at 0x%0lx; ptr at 0x%0lx\n", i, (uint64_t)hdr, (uint64_t)ptr);
+      DEBUGF("READ_BIN16: Byte %d is good: 0x%02x\n", i, b);
+      TRACEF("Byte %d; hdr at 0x%0llx; ptr at 0x%0llx\n", i, (uint64_t)hdr, (uint64_t)ptr);
       *ptr++ = (uint8_t)b;
 
-      if (i < ZHDR_SIZE - 2) {
+      if (i < ZHDR_SIZE - 4) {
         TRACEF("Will update CRC for byte %d\n", i);
-        crc = update_crc_ccitt(crc, b);
+        crc = ucrc16(b, crc);
       } else {
         TRACEF("Won't update CRC for byte %d\n", i);
       }
@@ -401,45 +457,101 @@ ZRESULT zm_read_binary16_header(ZHDR *hdr) {
   return zm_check_header_crc16(hdr, crc);
 }
 
+ZRESULT zm_read_binary32_header(ZHDR *hdr) {
+  uint8_t *ptr = (uint8_t*)hdr;
+  memset(hdr, 0xc0, sizeof(ZHDR));
+  uint32_t crc = CRC_START_32;
+
+  // Set flag that next block will be CRC32
+  in_32bit_block = 1;
+
+  for (int i = 0; i < ZHDR_SIZE; i++) {
+    uint16_t b = zm_read_escaped();
+
+    if (IS_ERROR(b)) {
+      DEBUGF("READ_BIN32: Character %d/1 is error: 0x%04x\n", i, b);
+      return b;
+    } else {
+      TRACEF("READ_BIN32: Byte %d is good: 0x%02x\n", i, b);
+      TRACEF("Byte %d; hdr at 0x%0llx; ptr at 0x%0llx\n", i, (uint64_t)hdr, (uint64_t)ptr);
+      *ptr++ = (uint8_t)b;
+
+      if (i < ZHDR_SIZE - 4) {
+        TRACEF("Will update CRC for byte %d\n", i);
+        crc = ucrc32(b, crc);
+      } else {
+        TRACEF("Won't update CRC for byte %d\n", i);
+      }
+
+      DEBUGF("READ_BIN32: CRC after byte %d is 0x%04x\n", i, crc);
+    }
+  }
+
+  DEBUG_DUMPHDR(hdr);
+
+  // Negate, as it seems libcrc is generating JAMCRC with update_crc_32...
+  crc = ~crc;
+
+  DEBUGF("READ_BIN32: All read; check CRC (Received: 0x%08x; Computed: 0x%08x)\n",
+          CRC32(hdr->crc1, hdr->crc2, hdr->crc3, hdr->crc4), crc);
+
+  return zm_check_header_crc32(hdr, crc);
+}
+
 ZRESULT zm_await_header(ZHDR *hdr) {
   uint16_t result;
 
-  if (zm_await_zdle() == OK) {
-    DEBUGF("Got ZDLE, awaiting type...\n");
-    char frame_type = zm_recv();
+  while (true) {
+    if (zm_await_zdle() == OK) {
+      DEBUGF("Got ZDLE, awaiting type...\n");
+      ZRESULT frame_type = zm_read_escaped();
 
-    switch (frame_type) {
-    case ZHEX:
-      DEBUGF("Reading HEX header\n");
-      result = zm_read_hex_header(hdr);
-
-      if (result == OK) {
-        DEBUGF("Got valid header\n");
-        return zm_read_crlf();
-      } else {
-        DEBUGF("Didn't get valid header [0x%02x]\n", result);
-        return result;
+      if (IS_ERROR(frame_type)) {
+          DEBUGF("Got error reading frame type: 0x%04x\n", frame_type);
+          continue;
       }
-    case ZBIN16:
-      DEBUGF("Reading BIN16 header\n");
-      result = zm_read_binary16_header(hdr);
 
-      if (result == OK) {
-        DEBUGF("Got valid header\n");
-        return OK;
-      } else {
-        DEBUGF("Didn't get valid header [0x%02x]\n", result);
-        return result;
+      switch (ZVALUE(frame_type)) {
+      case ZHEX:
+        DEBUGF("Reading HEX header\n");
+        result = zm_read_hex_header(hdr);
+
+        if (result == OK) {
+          DEBUGF("Got valid header\n");
+          return zm_read_crlf();
+        } else {
+          DEBUGF("Didn't get valid header [0x%02x]\n", result);
+          return result;
+        }
+      case ZBIN16:
+        DEBUGF("Reading BIN16 header\n");
+        result = zm_read_binary16_header(hdr);
+
+        if (result == OK) {
+          DEBUGF("Got valid header\n");
+          return OK;
+        } else {
+          DEBUGF("Didn't get valid header [0x%02x]\n", result);
+          return result;
+        }
+      case ZBIN32:
+          DEBUGF("Reading BIN32 header\n");
+          result = zm_read_binary32_header(hdr);
+
+          if (result == OK) {
+            DEBUGF("Got valid header\n");
+            return OK;
+          } else {
+            DEBUGF("Didn't get valid header [0x%02x]\n", result);
+            return result;
+          }
+      default:
+        DEBUGF("Got bad frame type '%c' [%02x]\n", ZVALUE(frame_type), ZVALUE(frame_type));
+        return BAD_FRAME_TYPE;
       }
-    case ZBIN32:
-      DEBUGF("Cannot handle frame type '%c' :(\n", frame_type);
-      return UNSUPPORTED;
-    default:
-      DEBUGF("Got bad frame type '%c'\n", frame_type);
-      return BAD_FRAME_TYPE;
+    } else {
+      return CLOSED;
     }
-  } else {
-    return CLOSED;
   }
 }
 
@@ -457,10 +569,78 @@ ZRESULT zm_send_sz(uint8_t *data) {
   return OK;
 }
 
-ZRESULT zm_send_hex_hdr(uint8_t *buf) {
+static ZRESULT just_send_hex_hdr(uint8_t *buf) {
   zm_send(ZPAD);
   zm_send(ZPAD);
   zm_send(ZDLE);
 
-  return zm_send_sz(buf);
+  DEBUGF("  >> SEND (raw): [%s]\n", buf);
+
+  ZRESULT result = zm_send_sz(buf);
+  if (IS_ERROR(result)) {
+      return result;
+  } else {
+      return zm_send(XON);
+  }
 }
+
+ZRESULT zm_send_hex_hdr(ZHDR *hdr) {
+  static uint8_t buf[HEX_HDR_STR_LEN];
+
+  zm_calc_hdr_crc(hdr);
+  ZRESULT result = zm_to_hex_header(hdr, buf, HEX_HDR_STR_LEN);
+
+  if (IS_ERROR(result)) {
+    return result;
+  } else {
+    return just_send_hex_hdr(buf);
+  }
+
+}
+
+ZRESULT zm_send_pos_hdr(uint8_t type, uint32_t pos) {
+  static ZHDR hdr;
+
+#ifdef ZDEBUG
+  static const ZHDR* hdrptr = &hdr;
+#endif
+
+  hdr.type = type;
+#ifdef ZM_BIG_ENDIAN
+  hdr.position.p3 = (uint8_t)(pos & 0xff);
+  hdr.position.p2 = (uint8_t)(pos >> 8) & 0xff;
+  hdr.position.p1 = (uint8_t)(pos >> 16) & 0xff;
+  hdr.position.p0 = (uint8_t)(pos >> 24) & 0xff;
+#else
+  hdr.position.p0 = (uint8_t)(pos & 0xff);
+  hdr.position.p1 = (uint8_t)(pos >> 8) & 0xff;
+  hdr.position.p2 = (uint8_t)(pos >> 16) & 0xff;
+  hdr.position.p3 = (uint8_t)(pos >> 24) & 0xff;
+#endif
+
+  DEBUGF("Sending position header as hex; Dump is:\n");
+  DEBUG_DUMPHDR_P(hdrptr);
+
+  return zm_send_hex_hdr(&hdr);
+}
+
+ZRESULT zm_send_flags_hdr(uint8_t type, uint8_t f0, uint8_t f1, uint8_t f2, uint8_t f3) {
+  static ZHDR hdr;
+
+#ifdef ZDEBUG
+  static const ZHDR* hdrptr = &hdr;
+#endif
+
+  hdr.type = type;
+  hdr.flags.f0 = f0;
+  hdr.flags.f1 = f1;
+  hdr.flags.f2 = f2;
+  hdr.flags.f3 = f3;
+
+  DEBUGF("Sending flags header as hex; Dump is:\n");
+  DEBUG_DUMPHDR_F(hdrptr);
+
+  return zm_send_hex_hdr(&hdr);
+}
+
+

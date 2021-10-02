@@ -38,6 +38,8 @@ extern "C" {
 #define ZCRCG       'i'
 #define ZCRCQ       'j'
 #define ZCRCW       'k'
+#define ZRUB0       'l'
+#define ZRUB1       'm'
 
 // Header types
 #define ZBIN16      'A'
@@ -87,7 +89,7 @@ extern "C" {
 
 // ZRESULT codes - Non-errors
 #define OK                0x0100        /* Generic return code for "all is well"            */
-#define FIN               0x0200        /* ORe with < 0xff to indicate a return condition   */
+#define FIN               0x0200        /* OR with < 0xff to indicate a return condition    */
 #define GOT_CRCE          (FIN | ZCRCE) /* CRC follows, end of frame, header is next        */
 #define GOT_CRCG          (FIN | ZCRCG) /* CRC follows, frame continues (non-stop)          */
 #define GOT_CRCQ          (FIN | ZCRCQ) /* CRC follows, frame continues, ZACK expected      */
@@ -119,13 +121,22 @@ extern "C" {
 #define WMSB(w)           ((w & 0xff00) >> 8)   /* word         -> most-significant byte    */
 #define WLSB(w)           (w & 0x00ff)          /* word         -> least-significant byte   */
 
+
+#ifdef ZM_BIG_ENDIAN
 // Byte to dword / vice versa
 #define BTODW(b1, b2, b3, b4)   (b1 << 24 | b2 << 16 | b3 << 8 | b4)    /* 4 bytes -> dword */
 #define DWB1(l)                 ((l & 0xff000000) >> 24)                /* MSB              */
 #define DWB2(l)                 ((l & 0x00ff0000) >> 16)                /* 2nd-MSB          */
 #define DWB3(l)                 ((l & 0x0000ff00) >> 8)                 /* 3rd-MSB          */
 #define DWB4(l)                 (l & 0x000000ff)                        /* LSB              */
-
+#else
+// Byte to dword / vice versa
+#define BTODW(b1, b2, b3, b4)   (b4 << 24 | b3 << 16 | b2 << 8 | b1)    /* 4 bytes -> dword */
+#define DWB1(l)                 (l & 0x000000ff)                        /* MSB              */
+#define DWB2(l)                 ((l & 0x0000ff00) >> 8)                 /* 2rd-MSB          */
+#define DWB3(l)                 ((l & 0x00ff0000) >> 16)                /* 3nd-MSB          */
+#define DWB4(l)                 ((l & 0xff000000) >> 24)                /* LSB              */
+#endif
 
 // CRC manipulation
 #define CRC               BTOW                  /* Convert two-bytes to 16-bit CRC          */
@@ -140,7 +151,7 @@ extern "C" {
 #define CRC32_B4          DWB4                  /* Least-significant byte of CRC32          */
 
 // Various sizes
-#define ZHDR_SIZE         0x07                  /* Size of ZHDR (excluding padding)         */
+#define ZHDR_SIZE         0x09                  /* Size of ZHDR (excluding padding)         */
 #define HEX_HDR_STR_LEN   0x11                  /* Total size of a ZHDR encoded as hex      */
 
 /*
@@ -171,6 +182,8 @@ typedef struct {
   };
   uint8_t   crc1;         /* keep these byte-sized to avoid alignment */
   uint8_t   crc2;         /* issues with 16-bit reads on m68k         */
+  uint8_t   crc3;
+  uint8_t   crc4;
   uint8_t   PADDING;
 } ZHDR;
 

@@ -3,11 +3,11 @@ LD=gcc
 CCP=g++
 LDP=g++
 
-CFLAGS=-std=c11 -Wall -Werror -Wpedantic -Iinclude -O3
+CFLAGS=-std=c11 -Wall -Werror -Wpedantic -Iinclude -O3 -DZDEBUG -DZTRACE
 CPPFLAGS=-std=c++17 -Wall -Werror -Wpedantic -Iinclude -O3
 LDFLAGS=
 
-OBJFILES=zheaders.o znumbers.o zserial.o crcccitt.o crc32.o
+OBJFILES=zheaders.o znumbers.o zserial.o crc16.o crc32.o
 
 all: rz test cpptest
 
@@ -20,7 +20,7 @@ all: rz test cpptest
 rz: rz.o $(OBJFILES)
 	$(LD) $(LDFLAGS) $^ -o $@
 
-test: tests.c zheaders.c znumbers.c zserial.c crcccitt.c crc32.c
+test: tests.c zheaders.c znumbers.c zserial.c crc16.c crc32.c
 	$(CC) $(CFLAGS) -DTEST -o $@ $^
 	./$@
 

@@ -58,6 +58,7 @@ ZRESULT zm_await_header(ZHDR *hdr);
 
 ZRESULT zm_read_hex_header(ZHDR *hdr);
 ZRESULT zm_read_binary16_header(ZHDR *hdr);
+ZRESULT zm_read_binary32_header(ZHDR *hdr);
 
 
 /*
@@ -74,7 +75,17 @@ ZRESULT zm_send_sz(uint8_t *data);
 /*
  * Send the given header as hex, with ZPAD/ZDLE preamble.
  */
-ZRESULT zm_send_hex_hdr(uint8_t *buf);
+ZRESULT zm_send_hex_hdr(ZHDR *hdr);
+
+/*
+ * Convenience function to build and send a position header as hex.
+ */
+ZRESULT zm_send_pos_hdr(uint8_t type, uint32_t pos);
+
+/*
+ * Convenience function to build and send a flags header as hex.
+ */
+ZRESULT zm_send_flags_hdr(uint8_t type, uint8_t f0, uint8_t f1, uint8_t f2, uint8_t f3);
 
 #ifdef __cplusplus
 }
