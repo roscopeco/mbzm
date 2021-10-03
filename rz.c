@@ -19,21 +19,31 @@
 #include <string.h>
 #include "zmodem.h"
 
-#include "rzinit.c"
+#ifdef ZEMBEDDED
+#define PRINTF(...)
+#define FPRINTF(...)
+#else
+#define PRINTF(...) printf(__VA_ARGS__)
+#define FPRINTF(...) fprintf(__VA_ARGS__)
+#endif
+
+// Spec says a data packet is max 1024 bytes, but add some headroom...
+#define DATA_BUF_LEN    2048
 
 static FILE *com;
-static FILE *out;
 
 /*
  * Implementation-defined receive character function.
  */
 ZRESULT zm_recv() {
-  register int result = fgetc(com);
+  uint8_t result;
 
-  if (result == EOF) {
-    return CLOSED;
-  } else {
+  if (fread(&result, 1, 1, com) == 1) {
+    TRACEF(" !!!! zm_recv: read [0x%02x]\n", result);
     return result;
+  } else {
+    DEBUGF("Read in zm_recv returned no data; Closed\n");
+    return CLOSED;
   }
 }
 
@@ -41,7 +51,7 @@ ZRESULT zm_recv() {
  * Implementation-defined send character function.
  */
 ZRESULT zm_send(uint8_t chr) {
-  register int result = putc((char)chr, com);
+  register int result = fputc((char)chr, com);
 
   if (result == EOF) {
     return CLOSED;
@@ -50,42 +60,45 @@ ZRESULT zm_send(uint8_t chr) {
   }
 }
 
-int main() {
+static FILE* init_com(int argc, char **argv) {
+    if (argc != 2) {
+        FPRINTF(stderr, "Usage: rz <device file>\n");
+        return NULL;
+    } else {
+        char *fn = argv[1];
+
+        FPRINTF(stderr, "Opening '%s' as com device\n", fn);
+        FILE *com = fopen(fn, "wb+");
+
+        if (com == NULL) {
+            FPRINTF(stderr, "Failed to open; quitting\n");
+            return NULL;
+        }
+
+        if (setvbuf(com, NULL, _IONBF, 0) != 0) {
+            FPRINTF(stderr, "Failed to disable buffering; Bailing...\n");
+
+            if (fclose(com) != 0) {
+                FPRINTF(stderr, "WARN: File not closed successfully!'n");
+            }
+
+            return NULL;
+        }
+
+        return com;
+    }
+}
+
+int main(int argc, char **argv) {
   uint8_t rzr_buf[4];
   uint8_t data_buf[DATA_BUF_LEN];
   uint16_t count;
   uint32_t received_data_size = 0;
   ZHDR hdr;
+  uint32_t bad_block_count = 0;
+  FILE *out = NULL;
 
-  // Set up static header buffers for later use...
-  if (IS_ERROR(init_hdr_buf(&hdr_zrinit, zrinit_buf))) {
-    FPRINTF(stderr, "Failed to initialize ZRINIT buffer; Bailing...");
-    return 3;
-  }
-  if (IS_ERROR(init_hdr_buf(&hdr_znak, znak_buf))) {
-    FPRINTF(stderr, "Failed to initialize ZNAK buffer; Bailing...");
-    return 3;
-  }
-  if (IS_ERROR(init_hdr_buf(&hdr_zrpos, zrpos_buf))) {
-    FPRINTF(stderr, "Failed to initialize ZRPOS buffer; Bailing...");
-    return 3;
-  }
-  if (IS_ERROR(init_hdr_buf(&hdr_zabort, zabort_buf))) {
-    FPRINTF(stderr, "Failed to initialize ZABORT buffer; Bailing...");
-    return 3;
-  }
-  if (IS_ERROR(init_hdr_buf(&hdr_zack, zack_buf))) {
-    FPRINTF(stderr, "Failed to initialize ZACK buffer; Bailing...");
-    return 3;
-  }
-  if (IS_ERROR(init_hdr_buf(&hdr_zfin, zfin_buf))) {
-    FPRINTF(stderr, "Failed to initialize ZACK buffer; Bailing...");
-    return 3;
-  }
-
-  com = fopen("/dev/pts/2", "a+");
-
-  if (com != NULL) {
+  if ((com = init_com(argc, argv)) != NULL) {
     DEBUGF("Opened port just fine\n");
 
     PRINTF("rosco_m68k ZMODEM receive example v0.01 - Awaiting remote transfer initiation...\n");
@@ -94,9 +107,14 @@ int main() {
       DEBUGF("Got rzr...\n");
 
       while (true) {
+startframe:
+        DEBUGF("\n====================================\n");
         uint16_t result = zm_await_header(&hdr);
 
         switch (result) {
+        case CANCELLED:
+          FPRINTF(stderr, "Transfer cancelled by remote; Bailing...\n");
+          goto cleanup;
         case OK:
           DEBUGF("Got valid header\n");
 
@@ -105,9 +123,12 @@ int main() {
           case ZEOF:
             DEBUGF("Is ZRQINIT or ZEOF\n");
 
-            result = zm_send_hex_hdr(zrinit_buf);
+            result = zm_send_flags_hdr(ZRINIT, CANOVIO | CANFC32, 0, 0, 0);
 
-            if (result == OK) {
+            if (result == CANCELLED) {
+              FPRINTF(stderr, "Transfer cancelled by remote; Bailing...\n");
+              goto cleanup;
+            } else if (result == OK) {
               DEBUGF("Send ZRINIT was OK\n");
             } else if(result == CLOSED) {
               FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
@@ -119,9 +140,12 @@ int main() {
           case ZFIN:
             DEBUGF("Is ZFIN\n");
 
-            result = zm_send_hex_hdr(zfin_buf);
+            result = zm_send_pos_hdr(ZFIN, 0);
 
-            if (result == OK) {
+            if (result == CANCELLED) {
+              FPRINTF(stderr, "Transfer cancelled by remote; Bailing...\n");
+              goto cleanup;
+            } else if (result == OK) {
               DEBUGF("Send ZFIN was OK\n");
             } else if(result == CLOSED) {
               FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
@@ -152,7 +176,10 @@ int main() {
             result = zm_read_data_block(data_buf, &count);
             DEBUGF("Result of data block read is [0x%04x] (got %d character(s))\n", result, count);
 
-            if (!IS_ERROR(result)) {
+            if (result == CANCELLED) {
+              FPRINTF(stderr, "Transfer cancelled by remote; Bailing...\n");
+              goto cleanup;
+            } else if (!IS_ERROR(result)) {
               PRINTF("Receiving file: '%s'\n", data_buf);
 
               out = fopen((char*)data_buf, "wb");
@@ -161,13 +188,16 @@ int main() {
                 goto cleanup;
               }
 
-              result = zm_send_hex_hdr(zrpos_buf);
+              result = zm_send_pos_hdr(ZRPOS, received_data_size);
 
-              if (result == OK) {
-                DEBUGF("Send ZRPOS was OK\n");
-              } else if(result == CLOSED) {
-                FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
+              if (result == CANCELLED) {
+                FPRINTF(stderr, "Transfer cancelled by remote; Bailing...\n");
                 goto cleanup;
+              } else if (result == OK) {
+                  DEBUGF("Send ZRPOS was OK\n");
+              } else if(result == CLOSED) {
+                  FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
+                  goto cleanup;
               }
             }
 
@@ -183,32 +213,38 @@ int main() {
               result = zm_read_data_block(data_buf, &count);
               DEBUGF("Result of data block read is [0x%04x] (got %d character(s))\n", result, count);
 
-              received_data_size += (count - 1);
-              if (out != NULL) {
-                fwrite(data_buf, count - 1, 1, out);
-              } else {
+              if (out == NULL) {
                 FPRINTF(stderr, "Received data before open file; Bailing...\n");
                 goto cleanup;
               }
 
-              if (!IS_ERROR(result)) {
+              if (result == CANCELLED) {
+                FPRINTF(stderr, "Transfer cancelled by remote; Bailing...\n");
+                goto cleanup;
+              } else if (!IS_ERROR(result)) {
                 DEBUGF("Received %d byte(s) of data\n", count);
+
+                fwrite(data_buf, count - 1, 1, out);
+                received_data_size += (count - 1);
 
                 if (result == GOT_CRCE) {
                   // End of frame, header follows, no ZACK expected.
-                  DEBUGF("Got CRCE; Frame done [NOACK]\n");
+                  DEBUGF("Got CRCE; Frame done [NOACK] [Pos: 0x%08x]\n", received_data_size);
                   break;
                 } else if (result == GOT_CRCG) {
                   // Frame continues, non-stop (another data packet follows)
-                  DEBUGF("Got CRCG; Frame continues [NOACK]\n");
+                  DEBUGF("Got CRCG; Frame continues [NOACK] [Pos: 0x%08x]\n", received_data_size);
                   continue;
                 } else if (result == GOT_CRCQ) {
-                  // Frame continues, ACK required
-                  DEBUGF("Got CRCQ; Frame continues [ACK]\n");
+                  // Frame continues, ZACK required
+                  DEBUGF("Got CRCQ; Frame continues [ACK] [Pos: 0x%08x]\n", received_data_size);
 
-                  result = zm_send_hex_hdr(zack_buf);
+                  result = zm_send_pos_hdr(ZACK, received_data_size);
 
-                  if (result == OK) {
+                  if (result == CANCELLED) {
+                    FPRINTF(stderr, "Transfer cancelled by remote; Bailing...\n");
+                    goto cleanup;
+                  } else if (result == OK) {
                     DEBUGF("Send ZACK was OK\n");
                   } else if(result == CLOSED) {
                     FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
@@ -218,11 +254,14 @@ int main() {
                   continue;
                 } else if (result == GOT_CRCW) {
                   // End of frame, header follows, ZACK expected.
-                  DEBUGF("Got CRCW; Frame done [ACK]\n");
+                  DEBUGF("Got CRCW; Frame done [ACK] [Pos: 0x%08x]\n", received_data_size);
 
-                  result = zm_send_hex_hdr(zack_buf);
+                  result = zm_send_pos_hdr(ZACK, received_data_size);
 
-                  if (result == OK) {
+                  if (result == CANCELLED) {
+                    FPRINTF(stderr, "Transfer cancelled by remote; Bailing...\n");
+                    goto cleanup;
+                  } else if (result == OK) {
                     DEBUGF("Send ZACK was OK\n");
                   } else if(result == CLOSED) {
                     FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
@@ -235,10 +274,21 @@ int main() {
               } else {
                 DEBUGF("Error while receiving block: 0x%04x\n", result);
 
-                result = zm_send_hex_hdr(znak_buf);
+                result = zm_send_pos_hdr(ZRPOS, received_data_size);
 
-                if (result == OK) {
-                  DEBUGF("Send ZNACK was OK\n");
+                char name[20];
+                snprintf(name, 20, "block%d.bin", bad_block_count++);
+                DEBUGF("  >> Writing file '%s'\n", name);
+                FILE *block = fopen(name, "wb");
+                fwrite(data_buf,count,1,block);
+                fclose(block);
+
+                if (result == CANCELLED) {
+                  FPRINTF(stderr, "Transfer cancelled by remote; Bailing...\n");
+                  goto cleanup;
+                } else if (result == OK) {
+                  DEBUGF("Send ZRPOS was OK\n");
+                  goto startframe;
                 } else if(result == CLOSED) {
                   FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
                   goto cleanup;
@@ -249,7 +299,7 @@ int main() {
             continue;
 
           default:
-            FPRINTF(stderr, "WARN: Ignoring unknown header type 0x%02x\n", hdr.type);
+            PRINTF("WARN: Ignoring unknown header type 0x%02x\n", hdr.type);
             continue;
           }
 
@@ -257,9 +307,12 @@ int main() {
         case BAD_CRC:
           DEBUGF("Didn't get valid header - CRC Check failed\n");
 
-          result = zm_send_hex_hdr(znak_buf);
+          result = zm_send_pos_hdr(ZNAK, received_data_size);
 
-          if (result == OK) {
+          if (result == CANCELLED) {
+            FPRINTF(stderr, "Transfer cancelled by remote; Bailing...\n");
+            goto cleanup;
+          } else if (result == OK) {
             DEBUGF("Send ZNACK was OK\n");
           } else if(result == CLOSED) {
             FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");
@@ -270,9 +323,12 @@ int main() {
         default:
           DEBUGF("Didn't get valid header - result is 0x%04x\n", result);
 
-          result = zm_send_hex_hdr(znak_buf);
+          result = zm_send_pos_hdr(ZNAK, received_data_size);
 
-          if (result == OK) {
+          if (result == CANCELLED) {
+            FPRINTF(stderr, "Transfer cancelled by remote; Bailing...\n");
+            goto cleanup;
+          } else if (result == OK) {
             DEBUGF("Send ZNACK was OK\n");
           } else if(result == CLOSED) {
             FPRINTF(stderr, "Connection closed prematurely; Bailing...\n");

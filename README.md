@@ -22,10 +22,15 @@ implementation to see how things were supposed to work.
 
 ## Features/Limitations
 
-Right now, this is very limited. For one thing, it can only receive. For another, it doesn't deal well
-with errors (i.e. it mostly doesn't work if there are errors on the line). Expanding it to support
-sending probably wouldn't be all that much work, but I don't need it right now so I haven't
-done it. Error handling I _do_ need (The aim is to use this with a 1980's UART), so that's a WIP.
+Right now, this is very limited. For one thing, it can only receive. For another, it doesn't deal
+with errors in a completely correct way (it _does_ however do the minimum needed to get the 
+other end to resend bad packets).
+
+Expanding it to support sending probably wouldn't be all that much work, but I don't need it 
+right now so I haven't done it. 
+
+Improving the error handling is a WIP, but it's 'good enough' for my purposes right now
+(usage with a 1980's UART).
 
 Other notable things:
 
@@ -33,7 +38,6 @@ Other notable things:
 * It's _sort-of_ optimised for use in 16/32-bit environments (I wrote it with M68010 as the primary target)
 * It doesn't support XON/XOFF flow control (it does enough that it _might_ work with it, but it's not tested
   and it certainly won't shut up when XOFF tells it to!).
-* It doesn't support 32-bit headers (work in progress - CRC32 _is_ supported, just not the headers yet).
 * It doesn't support **any** of the advanced features of the protocol (compression etc)
 
 Additionally, the included sample has even more limitations, such as:
@@ -43,7 +47,7 @@ Additionally, the included sample has even more limitations, such as:
 * It doesn't support the (optional) ZSINIT frame and will just ignore it
 * It doesn't support resume
 * It has a ton of other limitations I'm too lazy to list right now...
-* ... but it does work for the simple case of receiving data _with no error correction_.
+* ... but it does work for the simple case of receiving data.
 
 Note that this last set aren't limitations of the library _per se_ - it's more that they 
 aren't provided by the library, and the example program doesn't implement them either.
@@ -74,12 +78,14 @@ To build the application, just do:
 
 and then run it:
 
-`./rz`
+`./rz <device>`
 
 Now you can use e.g. `sz` to send a file to it:
 
 `sz /path/to/somefile > /dev/pts/1 < /dev/pts/1`
 
+**Be aware** that the sample will blindly overwrite files in the current directory
+if it receives a file with the same name!
 
 ### Use as a library
 
@@ -129,9 +135,14 @@ defines at the bottom of `ztypes.c` to suit.
 
 ## Shoutouts
 
-The CRC calculation code comes from the excellent **libcrc** library
-(https://github.com/lammertb/libcrc), because that code works well and
-I have zero interest in calculating CRCs myself.
+The CRC calculation code comes from the `pkg-sbbs` project on Github
+(https://github.com/ftnapps/pkg-sbbs), and is licensed under the GNU GPL.
+Because that code works well, is fast, and I have zero interest in calculating 
+CRCs myself I took the liberty of grabbing the code and reusing it here.
+
+That code is copyright (c) 2000 Rob Swindell. See the included `LICENSE.smblib`
+for license details.
 
 And obviously much respect to the late Chuck Fosberg, without whom 
 there would be no protocol to implement.
+
