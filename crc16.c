@@ -35,7 +35,11 @@
  * Note: If this box doesn't appear square, then you need to fix your tabs.	*
  ****************************************************************************/
 
+#ifdef ZEMBEDDED
+#include "embedded.h"
+#else
 #include <string.h>	/* strlen */
+#endif
 #include "crc16.h"
 
 unsigned short crc16tbl[] = {

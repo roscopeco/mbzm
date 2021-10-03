@@ -20,8 +20,9 @@
 
 #include <stddef.h>
 
-void *memset (void *mem, int val, size_t len);
-extern int strcmp (const char *s1, const char *s2);
+void    *memset (void *mem, int val, size_t len);
+int     strcmp  (const char *s1, const char *s2);
+int     strlen  (const char *str);
 
 #endif
 #endif /* __ROSCO_M68K_ZEMBEDDED_H */

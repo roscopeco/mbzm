@@ -3,7 +3,7 @@ LD=gcc
 CCP=g++
 LDP=g++
 
-CFLAGS=-std=c11 -Wall -Werror -Wpedantic -Iinclude -O3 -DZDEBUG -DZTRACE
+CFLAGS=-std=c11 -Wall -Werror -Wpedantic -Iinclude -O3
 CPPFLAGS=-std=c++17 -Wall -Werror -Wpedantic -Iinclude -O3
 LDFLAGS=
 

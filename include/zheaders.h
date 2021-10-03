@@ -103,6 +103,7 @@ static char *__hdrtypes[] __attribute__((unused)) = {
 #else
 #define DEBUG_DUMPHDR_F(hdr)
 #define DEBUG_DUMPHDR_P(hdr)
+#define DEBUG_DUMPHDR_R(hdr)
 #define DEBUG_DUMPHDR(hdr)
 #endif
 

@@ -35,7 +35,11 @@
  * Note: If this box doesn't appear square, then you need to fix your tabs.	*
  ****************************************************************************/
 
-#include <string.h>	/* strlen */
+#ifdef ZEMBEDDED
+#include "embedded.h"
+#else
+#include <string.h> /* strlen */
+#endif
 #include "crc32.h"
 
 long crc32tbl[]={	/* CRC polynomial 0xedb88320 */
