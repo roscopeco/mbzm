@@ -95,8 +95,11 @@ int main(int argc, char **argv) {
   uint16_t count;
   uint32_t received_data_size = 0;
   ZHDR hdr;
-  uint32_t bad_block_count = 0;
   FILE *out = NULL;
+
+#ifdef ZDEBUG_DUMP_BAD_BLOCKS
+  uint32_t bad_block_count = 0;
+#endif
 
   if ((com = init_com(argc, argv)) != NULL) {
     DEBUGF("Opened port just fine\n");
@@ -276,12 +279,14 @@ startframe:
 
                 result = zm_send_pos_hdr(ZRPOS, received_data_size);
 
+#ifdef ZDEBUG_DUMP_BAD_BLOCKS
                 char name[20];
                 snprintf(name, 20, "block%d.bin", bad_block_count++);
                 DEBUGF("  >> Writing file '%s'\n", name);
                 FILE *block = fopen(name, "wb");
                 fwrite(data_buf,count,1,block);
                 fclose(block);
+#endif
 
                 if (result == CANCELLED) {
                   FPRINTF(stderr, "Transfer cancelled by remote; Bailing...\n");
