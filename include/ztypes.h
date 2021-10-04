@@ -113,30 +113,22 @@ extern "C" {
 #define IS_FIN(x)         ((bool)((x & FIN) == FIN))
 #define ZVALUE(x)         ((uint8_t)(x & 0xff))
 
-// Nybble to byte / byte to word / vice-versa
+// Nybble to byte vice-versa
 #define NTOB(n1, n2)      (n1 << 4 | n2)        /* 2 nybbles    -> byte                     */
-#define BTOW(b1, b2)      (b1 << 8 | b2)        /* 2 bytes      -> word                     */
 #define BMSN(b)           ((b & 0xf0) >> 4)     /* byte         -> most-significant nybble  */
 #define BLSN(b)           (b & 0x0f)            /* byte         -> least-significant nybble */
+
+// Byte to word / vice-versa
+#define BTOW(b1, b2)      (b1 << 8 | b2)        /* 2 bytes      -> word                     */
 #define WMSB(w)           ((w & 0xff00) >> 8)   /* word         -> most-significant byte    */
 #define WLSB(w)           (w & 0x00ff)          /* word         -> least-significant byte   */
 
-
-#ifdef ZM_BIG_ENDIAN
-// Byte to dword / vice versa
-#define BTODW(b1, b2, b3, b4)   (b1 << 24 | b2 << 16 | b3 << 8 | b4)    /* 4 bytes -> dword */
-#define DWB1(l)                 ((l & 0xff000000) >> 24)                /* MSB              */
-#define DWB2(l)                 ((l & 0x00ff0000) >> 16)                /* 2nd-MSB          */
-#define DWB3(l)                 ((l & 0x0000ff00) >> 8)                 /* 3rd-MSB          */
-#define DWB4(l)                 (l & 0x000000ff)                        /* LSB              */
-#else
 // Byte to dword / vice versa
 #define BTODW(b1, b2, b3, b4)   (b4 << 24 | b3 << 16 | b2 << 8 | b1)    /* 4 bytes -> dword */
 #define DWB1(l)                 (l & 0x000000ff)                        /* MSB              */
 #define DWB2(l)                 ((l & 0x0000ff00) >> 8)                 /* 2rd-MSB          */
 #define DWB3(l)                 ((l & 0x00ff0000) >> 16)                /* 3nd-MSB          */
 #define DWB4(l)                 ((l & 0xff000000) >> 24)                /* LSB              */
-#endif
 
 // CRC manipulation
 #define CRC               BTOW                  /* Convert two-bytes to 16-bit CRC          */
