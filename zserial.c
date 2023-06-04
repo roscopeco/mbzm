@@ -248,15 +248,15 @@ ZRESULT zm_read_data_block(uint8_t *buf, uint16_t *len) {
 
     if (in_32bit_block) {
       ZRESULT crc3 = zm_read_escaped();
-      if (IS_ERROR(crc2)) {
-        return crc2;
-        DEBUGF("  >> READ_BLOCK: Error while reading crc3: 0x%04x\n", crc2);
+      if (IS_ERROR(crc3)) {
+        return crc3;
+        DEBUGF("  >> READ_BLOCK: Error while reading crc3: 0x%04x\n", crc3);
       }
 
       ZRESULT crc4 = zm_read_escaped();
-      if (IS_ERROR(crc2)) {
-        return crc2;
-        DEBUGF("  >> READ_BLOCK: Error while reading crc4: 0x%04x\n", crc2);
+      if (IS_ERROR(crc4)) {
+        return crc4;
+        DEBUGF("  >> READ_BLOCK: Error while reading crc4: 0x%04x\n", crc4);
       }
 
       DEBUGF("  >> READ_BLOCK: Calculate CRC32 for block len: %d\n", *len);
@@ -376,7 +376,7 @@ ZRESULT zm_read_hex_header(ZHDR *hdr) {
     if (IS_ERROR(c1)) {
       DEBUGF("READ_HEX: Character %d/1 is error: 0x%04x\n", i, c1);
       return c1;
-    } else if (IS_ERROR(c1)) {
+    } else if (IS_ZVALUE(c1,ZEOF)) {
       DEBUGF("READ_HEX: Character %d/1 is EOF\n", i);
       return CLOSED;
     } else {
@@ -386,7 +386,7 @@ ZRESULT zm_read_hex_header(ZHDR *hdr) {
       if (IS_ERROR(c2)) {
         DEBUGF("READ_HEX: Character %d/2 is error: 0x%04x\n", i, c2);
         return c2;
-      } else if (IS_ERROR(c2)) {
+      } else if (IS_ZVALUE(c2,ZEOF)) {
         DEBUGF("READ_HEX: Character %d/2 is EOF\n", i);
         return CLOSED;
       } else {
