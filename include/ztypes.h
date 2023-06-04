@@ -112,6 +112,7 @@ extern "C" {
 #define IS_ERROR(x)       ((bool)(ERROR_CODE((x)) != 0))
 #define IS_FIN(x)         ((bool)((x & FIN) == FIN))
 #define ZVALUE(x)         ((uint8_t)(x & 0xff))
+#define IS_ZVALUE(x, y)   ((bool)((x & 0xff) == y))
 
 // Nybble to byte vice-versa
 #define NTOB(n1, n2)      (n1 << 4 | n2)        /* 2 nybbles    -> byte                     */
